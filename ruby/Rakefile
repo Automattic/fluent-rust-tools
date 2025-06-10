@@ -1,0 +1,54 @@
+# frozen_string_literal: true
+
+require 'bundler/gem_tasks'
+require 'rspec/core/rake_task'
+require 'rubocop/rake_task'
+
+RSpec::Core::RakeTask.new(:spec)
+RuboCop::RakeTask.new
+
+desc 'Build Rust binary and prepare for gem'
+task :build_rust do
+  # Change to project root to build Rust binary
+  project_root = File.expand_path('..', __dir__)
+
+  Dir.chdir(project_root) do
+    system('cargo build --release') or raise 'Failed to build Rust binary'
+  end
+
+  # Create bin directory and copy binary
+  require 'fileutils'
+  FileUtils.mkdir_p('bin')
+
+  source_binary = File.expand_path('../target/release/fluent-tools', __dir__)
+  FileUtils.cp(source_binary, 'bin/fluent-tools')
+  puts '✅ Rust binary built and copied to ruby/bin/'
+end
+
+desc 'Clean all build artifacts'
+task :clean do
+  require 'fileutils'
+
+  # Clean Ruby-specific artifacts
+  FileUtils.rm_rf('bin')
+  FileUtils.rm_rf('pkg')
+
+  # Clean Rust artifacts from project root
+  project_root = File.expand_path('..', __dir__)
+  Dir.chdir(project_root) do
+    system('cargo clean')
+  end
+
+  puts '🧹 Cleaned all build artifacts'
+end
+
+desc 'Run all tests'
+task test: %i[build_rust spec]
+
+desc 'Run linting'
+task lint: :rubocop
+
+# Override the default build task from bundler/gem_tasks to include Rust build
+task build: :build_rust
+
+task default: %i[test lint]

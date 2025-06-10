@@ -1,0 +1,48 @@
+# frozen_string_literal: true
+
+require_relative 'lib/fluent_tools/version'
+
+Gem::Specification.new do |spec|
+  spec.name = 'fluent-tools'
+  spec.version = FluentTools::VERSION
+  spec.authors = ['Automattic']
+  spec.email = ['mobile@automattic.com']
+
+  spec.summary = 'Convert between Fluent and other formats (Android XML, GNU gettext PO)'
+  spec.description = "A Ruby gem that wraps a Rust CLI tool for converting between Mozilla's Fluent localization format and other formats like Android XML string resources and GNU gettext PO files"
+  spec.homepage = 'https://github.com/Automattic/fluent-rust-tools'
+  spec.license = 'MPL-2.0'
+  spec.required_ruby_version = '>= 3.2.2'
+
+  spec.metadata['allowed_push_host'] = 'https://rubygems.org'
+  spec.metadata['homepage_uri'] = spec.homepage
+  spec.metadata['source_code_uri'] = spec.homepage
+  spec.metadata['changelog_uri'] = "#{spec.homepage}/blob/main/CHANGELOG.md"
+
+  spec.files = `git ls-files`.split($INPUT_RECORD_SEPARATOR)
+
+  spec.bindir = 'exe'
+  spec.executables = ['fluent-tools']
+  spec.require_paths = ['lib']
+
+  # Runtime dependencies
+  spec.add_dependency 'thor', '~> 1.0'
+
+  # Post-install message
+  spec.post_install_message = <<~MESSAGE
+    This gem will try to use a pre-built binary for your platform.
+    If unavailable, it will compile the Rust binary during installation.
+
+    If compilation is needed, make sure you have Rust installed: https://rustup.rs/
+
+    Usage:
+    fluent-tools android to-xml -i input.ftl -o output.xml
+    fluent-tools android to-fluent -i input.xml -o output.ftl
+    fluent-tools po to-po -i input.ftl -o output.po
+    fluent-tools po to-fluent -i input.po -o output.ftl
+  MESSAGE
+
+  # Extensions for building the Rust binary
+  spec.extensions = ['ext/fluent_tools/extconf.rb']
+  spec.metadata['rubygems_mfa_required'] = 'true'
+end

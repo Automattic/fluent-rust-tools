@@ -1,0 +1,20 @@
+AllCops:
+  NewCops: enable
+
+Style/HashSyntax:
+  EnforcedShorthandSyntax: never
+
+Layout/LineLength:
+  Max: 200
+
+Metrics/AbcSize:
+  Max: 120
+
+Metrics/BlockLength:
+  Max: 80
+
+Metrics/ClassLength:
+  Max: 300
+
+Metrics/MethodLength:
+  Max: 150
