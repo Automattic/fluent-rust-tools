@@ -3,42 +3,127 @@
 require 'bundler/gem_tasks'
 require 'rspec/core/rake_task'
 require 'rubocop/rake_task'
+require 'fileutils'
+require 'octokit'
+
+# Load project-specific dependencies when needed
+def require_project_deps
+  require_relative 'lib/fluent_tools/version'
+  require_relative 'lib/fluent_tools/utils'
+end
 
 RSpec::Core::RakeTask.new(:spec)
 RuboCop::RakeTask.new
 
-desc 'Build Rust binary and prepare for gem'
-task :build_rust do
-  # Change to project root to build Rust binary
-  project_root = File.expand_path('..', __dir__)
+# Helper methods
+def project_root
+  @project_root ||= File.expand_path('..', __dir__)
+end
 
-  Dir.chdir(project_root) do
-    system('cargo build --release') or raise 'Failed to build Rust binary'
+def translate_build_mode(mode)
+  case mode&.to_s&.downcase
+  when 'native'
+    'build_native'
+  when 'docker', nil, ''
+    'build'
+  else
+    raise "Invalid build mode: #{mode}. Use 'docker' or 'native'"
+  end
+end
+
+def build_rust_binary(mode = 'docker')
+  target = translate_build_mode(mode)
+  puts "🔨 Building Rust binary using mode: #{mode} (make #{target})"
+  system("cd #{project_root} && make #{target}") || raise('Failed to build Rust binary')
+end
+
+def source_binary_path
+  File.expand_path('../target/release/fluent-tools', __dir__)
+end
+
+def find_or_create_release(client, repo, version)
+  tag_name = version
+  puts "🔍 Checking for existing release: #{tag_name}"
+
+  begin
+    release = client.release_for_tag(repo, tag_name)
+    puts "✅ Found existing release: #{release.name}"
+    release
+  rescue Octokit::NotFound
+    puts "📝 Creating new release: #{tag_name}"
+    is_prerelease = %w[alpha beta rc].any? { |pre| version.include?(pre) }
+    client.create_release(repo, tag_name, {
+      name: version,
+      body: "Release #{version}",
+      draft: false,
+      prerelease: is_prerelease
+    })
+  end
+end
+
+def upload_release_asset(client, release, binary_name)
+  # Remove existing asset if present
+  existing_asset = release.assets.find { |asset| asset.name == binary_name }
+  if existing_asset
+    puts "⚠️ Asset #{binary_name} already exists, deleting..."
+    client.delete_release_asset(existing_asset.url)
   end
 
-  # Create bin directory and copy binary
-  require 'fileutils'
-  FileUtils.mkdir_p('bin')
+  # Upload new asset
+  puts "📤 Uploading #{binary_name} to release..."
+  client.upload_asset(release.url, binary_name, { content_type: 'application/octet-stream' })
+end
 
-  source_binary = File.expand_path('../target/release/fluent-tools', __dir__)
-  FileUtils.cp(source_binary, 'bin/fluent-tools')
+# Tasks
+desc 'Build Rust binary and prepare for gem (mode: docker|native, default: docker)'
+task :build_rust, [:mode] do |_t, args|
+  mode = args[:mode] || 'docker'
+  build_rust_binary(mode)
+
+  FileUtils.mkdir_p('bin')
+  FileUtils.cp(source_binary_path, 'bin/fluent-tools')
   puts '✅ Rust binary built and copied to ruby/bin/'
+end
+
+desc 'Build release binary for current platform and upload to GitHub releases (mode: docker|native, default: docker)'
+task :release_binary, [:mode] do |_t, args|
+  require_project_deps
+
+  mode = args[:mode] || 'docker'
+  build_rust_binary(mode)
+
+  # Prepare platform-specific binary
+  platform = FluentTools::Utils.detect_platform
+  raise "Unsupported platform" unless platform
+  puts "🔍 Detected platform: #{platform}"
+
+  binary_extension = FluentTools::Utils.binary_extension(platform)
+  source_binary = File.expand_path("../target/release/#{FluentTools::Utils::BINARY_NAME}#{binary_extension}", __dir__)
+  binary_name = FluentTools::Utils.binary_name_for_platform(platform)
+
+  raise "Built binary not found at #{source_binary}" unless File.exist?(source_binary)
+
+  FileUtils.cp(source_binary, binary_name)
+  puts "📦 Prepared binary: #{binary_name}"
+
+  # Upload to GitHub
+  github_token = ENV['GITHUB_TOKEN'] || raise('GITHUB_TOKEN environment variable is required')
+  client = Octokit::Client.new(access_token: github_token)
+  repo = "#{FluentTools::Utils::REPO_OWNER}/#{FluentTools::Utils::REPO_NAME}"
+
+  release = find_or_create_release(client, repo, FluentTools::VERSION)
+  asset = upload_release_asset(client, release, binary_name)
+
+  puts "✅ Successfully uploaded #{binary_name} to GitHub release!"
+  puts "🔗 Download URL: #{asset.browser_download_url}"
+
+  FileUtils.rm(binary_name)
 end
 
 desc 'Clean all build artifacts'
 task :clean do
-  require 'fileutils'
-
-  # Clean Ruby-specific artifacts
-  FileUtils.rm_rf('bin')
-  FileUtils.rm_rf('pkg')
-
-  # Clean Rust artifacts from project root
-  project_root = File.expand_path('..', __dir__)
-  Dir.chdir(project_root) do
-    system('cargo clean')
-  end
-
+  FileUtils.rm_rf(['bin', 'pkg'])
+  system("cd #{project_root} && make clean")
   puts '🧹 Cleaned all build artifacts'
 end
 
@@ -48,7 +133,5 @@ task test: %i[build_rust spec]
 desc 'Run linting'
 task lint: :rubocop
 
-# Override the default build task from bundler/gem_tasks to include Rust build
 task build: :build_rust
-
 task default: %i[test lint]
