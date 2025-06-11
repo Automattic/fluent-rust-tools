@@ -9,6 +9,7 @@ require 'uri'
 require 'fileutils'
 require 'rbconfig'
 require 'json'
+require 'pathname'
 require_relative 'lib/fluent_tools/utils'
 
 # Installer for fluent-rust-tools gem
@@ -130,7 +131,11 @@ class FluentToolsInstaller
     log_info '🔨 Building from source...'
 
     # Find project root (where Cargo.toml and Makefile are)
-    project_root = Dir.pwd.ascend
+    project_root = find_project_root
+    unless project_root
+      log_error 'Could not find project root (Cargo.toml)'
+      return false
+    end
 
     # Use Makefile to build the binary
     Dir.chdir(project_root) do
@@ -145,6 +150,13 @@ class FluentToolsInstaller
     log_success 'Binary built and installed successfully!'
 
     true
+  end
+
+  def find_project_root
+    Pathname.pwd.ascend do |dir|
+      return dir.to_s if File.exist?(File.join(dir, 'Cargo.toml'))
+    end
+    nil
   end
 
   def copy_built_binary(project_root)
@@ -163,7 +175,7 @@ class FluentToolsInstaller
 
   def determine_install_dir
     # For gem installation, put in ruby/bin relative to project root
-    project_root = Dir.pwd.ascend
+    project_root = find_project_root
     if project_root
       File.join(project_root, 'ruby', 'bin')
     else
