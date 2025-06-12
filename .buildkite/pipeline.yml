@@ -1,10 +1,13 @@
 agents:
   queue: default
 
+env:
+  IMAGE_ID: $IMAGE_ID
+
 common_params:
   plugins:
     - &ci_toolkit
-      automattic/a8c-ci-toolkit#5.3.1: ~
+      $CI_TOOLKIT: ~
     - &docker_plugin
       docker#v5.8.0:
         image: public.ecr.aws/docker/library/ruby:3.2.2
@@ -16,13 +19,13 @@ steps:
   #################
   # Build and Test
   #################
-  - group: "🧪 Build and Test"
-    key: build-and-test
+  - group: "Tests"
+    key: tests
     steps:
-      - label: "🧪 Build and Test"
+      - label: "🧪 Run Tests"
         command: |
-          echo "--- :rust: Build and Test"
-          make build test
+          echo "--- :rust: Run Tests"
+          make test
 
   #################
   # Lint
@@ -43,12 +46,14 @@ steps:
     key: release-binaries
     if: build.tag != null
     depends_on:
-      - build-and-test
+      - tests
       - rubocop
     steps:
       - label: ":linux: Release Binary (Docker)"
         command: .buildkite/release-binary.sh docker
         plugins: [*ci_toolkit]
+        agents:
+          queue: tumblr-metal
 
       - label: ":apple: Release Binary (Native)"
         command: .buildkite/release-binary.sh native
@@ -64,6 +69,5 @@ steps:
     if: "false" # temporarily disable Gem publishing // build.tag != null
     depends_on:
      - release-binaries
-     - rubocop
     command: .buildkite/gem-push.sh
     plugins: [*docker_plugin]
