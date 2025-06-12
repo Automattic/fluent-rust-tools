@@ -519,6 +519,124 @@ fn map_android_to_fluent_quantity(android_quantity: &str) -> String {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use tempfile::tempdir;
+    use std::fs;
+
+    #[test]
+    fn test_fluent_to_android_file_simple() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let output_path = temp_dir.path().join("output.xml");
+
+        let fluent_content = "hello = Hello World";
+        fs::write(&input_path, fluent_content).unwrap();
+
+        let result = fluent_to_android(&input_path, &output_path);
+        assert!(result.is_ok());
+
+        let xml_content = fs::read_to_string(&output_path).unwrap();
+        assert!(xml_content.contains(r#"<string name="hello">Hello World</string>"#));
+    }
+
+    #[test]
+    fn test_android_to_fluent_file_simple() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.xml");
+        let output_path = temp_dir.path().join("output.ftl");
+
+        let xml_content = r#"<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="hello">Hello World</string>
+</resources>"#;
+        fs::write(&input_path, xml_content).unwrap();
+
+        let result = android_to_fluent(&input_path, &output_path);
+        assert!(result.is_ok());
+
+        let fluent_content = fs::read_to_string(&output_path).unwrap();
+        assert!(fluent_content.contains("hello = Hello World"));
+    }
+
+    #[test]
+    fn test_round_trip_conversion_file() {
+        let temp_dir = tempdir().unwrap();
+        let original_ftl_path = temp_dir.path().join("original.ftl");
+        let xml_path = temp_dir.path().join("intermediate.xml");
+        let final_ftl_path = temp_dir.path().join("final.ftl");
+
+        let original_content = r#"
+# General greeting
+hello = Hello World
+# Greeting with a variable
+greeting = Hello, {$name}!
+"#;
+        fs::write(&original_ftl_path, original_content).unwrap();
+
+        // Fluent to Android
+        assert!(fluent_to_android(&original_ftl_path, &xml_path).is_ok());
+        
+        // Android to Fluent with original context for better variable name preservation
+        assert!(android_to_fluent_with_original(&xml_path, &final_ftl_path, &original_ftl_path).is_ok());
+
+        let final_content = fs::read_to_string(&final_ftl_path).unwrap();
+        assert!(final_content.contains("hello = Hello World"));
+        assert!(final_content.contains("greeting = Hello, {$name}!"));
+    }
+
+    #[test]
+    fn test_round_trip_conversion_with_plurals_file() {
+        let temp_dir = tempdir().unwrap();
+        let original_ftl_path = temp_dir.path().join("original.ftl");
+        let xml_path = temp_dir.path().join("intermediate.xml");
+        let final_ftl_path = temp_dir.path().join("final.ftl");
+
+        let original_content = r#"
+# A pluralized message
+item_count = {$count ->
+    [one] { $count } item
+   *[other] { $count } items
+}
+"#;
+        fs::write(&original_ftl_path, original_content).unwrap();
+
+        // Fluent to Android
+        assert!(fluent_to_android(&original_ftl_path, &xml_path).is_ok());
+
+        // Android to Fluent with context
+        assert!(android_to_fluent_with_original(&xml_path, &final_ftl_path, &original_ftl_path).is_ok());
+
+        let final_content = fs::read_to_string(final_ftl_path).unwrap();
+        assert!(final_content.contains("item_count = {$count ->"));
+        assert!(final_content.contains("[one] {$count} item"));
+        assert!(final_content.contains("*[other] {$count} items"));
+    }
+    
+    #[test]
+    fn test_fluent_to_android_with_comments_file() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let output_path = temp_dir.path().join("output.xml");
+
+        let fluent_content = r#"# This is a comment for a simple string
+hello = Hello World
+# This is a comment for a plural message
+# with multiple lines
+item_count = {$count ->
+    [one] { $count } item
+   *[other] { $count } items
+}
+"#;
+        fs::write(&input_path, fluent_content).unwrap();
+
+        assert!(fluent_to_android(&input_path, &output_path).is_ok());
+
+        let xml_content = fs::read_to_string(&output_path).unwrap();
+        
+        // Check that comments are preserved in the XML output
+        // Note: The comment extraction captures the last comment before each message
+        assert!(xml_content.contains("This is a comment for a simple string"));
+        assert!(xml_content.contains("with multiple lines")); // Last line of multi-line comment
+    }
 
     #[test]
     fn test_escape_android_string() {
@@ -607,40 +725,6 @@ mod tests {
         } else {
             panic!("Expected text element");
         }
-    }
-
-    #[test]
-    fn test_round_trip_conversion() {
-        use crate::shared::fluent_parser::FluentResource;
-        
-        // Start with Fluent
-        let original_ftl = r#"hello = Hello World
-greeting = Hello, {$name}!
-count = {$num ->
-    [one] {$num} item
-   *[other] {$num} items
-}"#;
-        
-        // Convert to Android XML
-        let fluent_resource = FluentResource::from_source(original_ftl).unwrap();
-        let android_resources = convert_fluent_to_android(&fluent_resource).unwrap();
-        
-        // Convert back to Fluent
-        let conversion_context = ConversionContext::default();
-        let converted_fluent = convert_android_to_fluent(&android_resources, &conversion_context).unwrap();
-        
-        // Check that we have the same number of messages
-        assert_eq!(converted_fluent.messages.len(), 3);
-        
-        // Check specific messages exist
-        let hello_msg = converted_fluent.messages.iter().find(|m| m.id == "hello").unwrap();
-        assert!(hello_msg.value.is_some());
-        
-        let greeting_msg = converted_fluent.messages.iter().find(|m| m.id == "greeting").unwrap();
-        assert!(greeting_msg.value.is_some());
-        
-        let count_msg = converted_fluent.messages.iter().find(|m| m.id == "count").unwrap();
-        assert!(count_msg.value.is_some());
     }
 
     #[test]
