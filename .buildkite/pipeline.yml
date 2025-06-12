@@ -6,8 +6,6 @@ env:
 
 common_params:
   plugins:
-    - &ci_toolkit
-      $CI_TOOLKIT: ~
     - &docker_plugin
       docker#v5.8.0:
         image: public.ecr.aws/docker/library/ruby:3.2.2
@@ -51,13 +49,18 @@ steps:
     steps:
       - label: ":linux: Release Binary (Docker)"
         command: .buildkite/release-binary.sh docker
-        plugins: [*ci_toolkit]
+        plugins: [$CI_TOOLKIT]
         agents:
-          queue: tumblr-metal
+          queue: mac
 
-      - label: ":apple: Release Binary (Native)"
-        command: .buildkite/release-binary.sh native
-        plugins: [*ci_toolkit]
+      - label: ":apple: Release Binary"
+        command: |
+          echo "--- :rust: Installing Rust"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -v -y
+          source "$$HOME/.cargo/env"
+
+          .buildkite/release-binary.sh native
+        plugins: [$CI_TOOLKIT]
         agents:
           queue: mac
 
