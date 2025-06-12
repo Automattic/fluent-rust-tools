@@ -30,16 +30,10 @@ Gem::Specification.new do |spec|
 
   # Post-install message
   spec.post_install_message = <<~MESSAGE
-    This gem will try to use a pre-built binary for your platform.
+    This fluent-tools gem will try to use a pre-built binary for your platform.
     If unavailable, it will compile the Rust binary during installation.
 
     If compilation is needed, make sure you have Rust installed: https://rustup.rs/
-
-    Usage:
-    fluent-tools android to-xml -i input.ftl -o output.xml
-    fluent-tools android to-fluent -i input.xml -o output.ftl
-    fluent-tools po to-po -i input.ftl -o output.po
-    fluent-tools po to-fluent -i input.po -o output.ftl
   MESSAGE
 
   # Extensions for building the Rust binary
