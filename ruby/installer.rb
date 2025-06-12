@@ -34,11 +34,11 @@ class FluentToolsInstaller
         true
       else
         log_warning 'Pre-built binary not available, falling back to compilation...'
-        build_from_source
+        build_binary_from_source
       end
     else
       log_warning "Platform #{RUBY_PLATFORM} not supported for pre-built binaries"
-      build_from_source
+      build_binary_from_source
     end
   end
 
@@ -127,7 +127,8 @@ class FluentToolsInstaller
     @binary_path = binary_path
   end
 
-  def build_from_source
+  # rubocop:disable Naming/PredicateMethod
+  def build_binary_from_source
     log_info '🔨 Building from source...'
 
     # Find project root (where Cargo.toml and Makefile are)
@@ -151,6 +152,7 @@ class FluentToolsInstaller
 
     true
   end
+  # rubocop:enable Naming/PredicateMethod
 
   def find_project_root
     Pathname.pwd.ascend do |dir|

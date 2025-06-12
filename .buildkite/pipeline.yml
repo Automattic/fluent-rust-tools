@@ -28,13 +28,13 @@ steps:
   # Lint
   #################
   - label: ":rubocop: Ruby Lint (Rubocop)"
-    command: rubocop
+    # for now, running in the default queue to avoid the need of a Gemfile the root directory
+    command: cd ruby && bundle install && bundle exec rubocop
     key: rubocop
     retry:
       manual:
         permit_on_passed: true
-    agents:
-      queue: linter
+    plugins: [*docker_plugin]
 
   #################
   # Release Binaries
@@ -61,7 +61,7 @@ steps:
   #################
   - label: ":rubygems: Publish to RubyGems"
     key: gem-push
-    if: false # temporarily disable Gem publishing // build.tag != null
+    if: "false" # temporarily disable Gem publishing // build.tag != null
     depends_on:
      - release-binaries
      - rubocop

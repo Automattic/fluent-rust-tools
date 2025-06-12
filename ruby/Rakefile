@@ -53,11 +53,11 @@ def find_or_create_release(client, repo, version)
     puts "📝 Creating new release: #{tag_name}"
     is_prerelease = %w[alpha beta rc].any? { |pre| version.include?(pre) }
     client.create_release(repo, tag_name, {
-      name: version,
-      body: "Release #{version}",
-      draft: false,
-      prerelease: is_prerelease
-    })
+                            name: version,
+                            body: "Release #{version}",
+                            draft: false,
+                            prerelease: is_prerelease
+                          })
   end
 end
 
@@ -94,7 +94,8 @@ task :release_binary, [:mode] do |_t, args|
 
   # Prepare platform-specific binary
   platform = FluentTools::Utils.detect_platform
-  raise "Unsupported platform" unless platform
+  raise 'Unsupported platform' unless platform
+
   puts "🔍 Detected platform: #{platform}"
 
   binary_extension = FluentTools::Utils.binary_extension(platform)
@@ -122,7 +123,7 @@ end
 
 desc 'Clean all build artifacts'
 task :clean do
-  FileUtils.rm_rf(['bin', 'pkg'])
+  FileUtils.rm_rf(%w[bin pkg])
   system("cd #{project_root} && make clean")
   puts '🧹 Cleaned all build artifacts'
 end
