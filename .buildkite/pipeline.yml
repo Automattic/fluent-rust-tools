@@ -47,11 +47,16 @@ steps:
       - tests
       - rubocop
     steps:
-      - label: ":linux: Release Binary (Docker)"
-        command: .buildkite/release-binary.sh docker
+      - label: ":linux: Release Binary"
+        command: |
+          echo "--- :rust: Installing Rust"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -v -y
+          source "$$HOME/.cargo/env"
+
+          .buildkite/release-binary.sh native
         plugins: [$CI_TOOLKIT]
         agents:
-          queue: mac
+          queue: android
 
       - label: ":apple: Release Binary"
         command: |
