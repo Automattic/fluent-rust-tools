@@ -17,6 +17,8 @@ notification-count = {$count ->
 }
 
 # Multi-line string with indentation
+# with a multi-line comment
+# as comments also are being parsed
 long-description = This is a longer description that spans
     multiple lines to test how multi-line content
     is preserved during the round trip conversion
