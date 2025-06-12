@@ -70,7 +70,7 @@ def upload_release_asset(client, release, binary_name)
   end
 
   # Upload new asset
-  puts "📤 Uploading #{binary_name} to release..."
+  puts "📤 Uploading #{binary_name} to GitHub release..."
   client.upload_asset(release.url, binary_name, { content_type: 'application/octet-stream' })
 end
 
