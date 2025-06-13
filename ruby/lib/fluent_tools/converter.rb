@@ -54,11 +54,11 @@ module FluentTools
 
     def find_binary_path
       # First try to find the binary in the gem's installation directory
-      gem_binary = File.join(__dir__, '..', '..', 'bin', 'fluent-tools')
+      gem_binary = File.join(__dir__, '..', '..', 'bin', FluentTools::Utils::BINARY_NAME)
       return gem_binary if File.executable?(gem_binary)
 
       # Fallback to system PATH
-      system_binary = `which fluent-tools 2>/dev/null`.strip
+      system_binary = `which #{FluentTools::Utils::BINARY_NAME} 2>/dev/null`.strip
       return system_binary unless system_binary.empty?
 
       # If neither found, assume it will be built during gem installation

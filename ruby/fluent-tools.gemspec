@@ -3,7 +3,7 @@
 require_relative 'lib/fluent_tools/version'
 
 Gem::Specification.new do |spec|
-  spec.name = 'fluent-tools'
+  spec.name = FluentTools::Utils::BINARY_NAME
   spec.version = FluentTools::VERSION
   spec.authors = ['Automattic']
   spec.email = ['mobile@automattic.com']

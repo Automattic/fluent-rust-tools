@@ -90,7 +90,7 @@ module FluentTools
 
     desc 'version', 'Show version'
     def version
-      puts "fluent-tools #{VERSION}"
+      puts "#{FluentTools::Utils::BINARY_NAME} #{VERSION}"
     end
   end
 end
