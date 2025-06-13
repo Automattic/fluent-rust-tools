@@ -247,4 +247,103 @@ greeting = Hello, {$name}!
         let result = po_to_fluent(&input_path, &output_path);
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_po_with_missing_metadata_headers() {
+        // Test conversion of PO files with missing required metadata headers
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("problematic.po");
+        let output_path = temp_dir.path().join("output.ftl");
+
+        // Create a PO file missing required metadata fields (POT-Creation-Date, Last-Translator, Language-Team)
+        let problematic_po_content = r#"# Translation of Mobile - wordpress-rs in Portuguese (Brazil)
+# This file is distributed under the same license as the Mobile - wordpress-rs package.
+msgid ""
+msgstr ""
+"PO-Revision-Date: 2025-06-05 15:08:46+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+"X-Generator: GlotPress/2.4.0-alpha\n"
+"Language: pt_BR\n"
+"Project-Id-Version: Mobile - wordpress-rs\n"
+
+msgctxt "parse_api_root_failure_reason_wordfence_blocking_access"
+msgid "Wordfence is blocking access to the site's API. Please check your Wordfence configuration."
+msgstr ""
+
+msgctxt "application_passwords_not_supported"
+msgid "The site does not support Application Passwords."
+msgstr ""
+"#;
+        
+        fs::write(&input_path, problematic_po_content).unwrap();
+        
+        // This should succeed with our preprocessing fallback mechanism
+        let result = po_to_fluent(&input_path, &output_path);
+        
+        match result {
+            Ok(_) => {
+                // Verify the output contains expected content
+                let fluent_content = fs::read_to_string(&output_path).unwrap();
+                assert!(fluent_content.contains("parse_api_root_failure_reason_wordfence_blocking_access"));
+                assert!(fluent_content.contains("application_passwords_not_supported"));
+            }
+            Err(e) => {
+                panic!("Expected successful conversion with preprocessing fallback, but got error: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_fluent_to_po_includes_required_metadata() {
+        // Test that PO files we generate include all required metadata fields
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let po_path = temp_dir.path().join("output.po");
+        let roundtrip_path = temp_dir.path().join("roundtrip.ftl");
+        
+        // Create a simple Fluent file
+        let fluent_content = r#"hello = Hello World
+greeting = Hello, {$name}!
+"#;
+        fs::write(&input_path, fluent_content).unwrap();
+        
+        // Convert Fluent to PO
+        let result = fluent_to_po(&input_path, &po_path, "en");
+        assert!(result.is_ok());
+        
+        // Verify PO file was created
+        assert!(po_path.exists());
+        
+        // Most importantly, verify we can parse our own generated PO file
+        // without any preprocessing (this would fail if required metadata is missing)
+        let direct_parse_result = std::panic::catch_unwind(|| {
+            polib::po_file::parse(&po_path)
+        });
+        
+        // This should succeed without panic or preprocessing
+        match direct_parse_result {
+            Ok(Ok(catalog)) => {
+                // Success! Our generated PO file has all required metadata
+                println!("Generated PO file parsed successfully without preprocessing");
+                assert!(catalog.messages().count() > 0);
+            }
+            Ok(Err(e)) => {
+                panic!("Generated PO file failed to parse: {}", e);
+            }
+            Err(_) => {
+                panic!("Generated PO file caused a panic - missing required metadata fields");
+            }
+        }
+        
+        // Also test the round-trip conversion works
+        let roundtrip_result = po_to_fluent(&po_path, &roundtrip_path);
+        assert!(roundtrip_result.is_ok());
+        
+        let roundtrip_content = fs::read_to_string(&roundtrip_path).unwrap();
+        assert!(roundtrip_content.contains("hello = Hello World"));
+        assert!(roundtrip_content.contains("greeting = Hello, {$name}!"));
+    }
 }

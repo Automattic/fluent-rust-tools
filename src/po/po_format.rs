@@ -7,11 +7,97 @@ use anyhow::Result;
 use std::path::Path;
 use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement, extract_pattern_text};
 use crate::shared::error::ConversionError;
+use std::collections::HashMap;
 
-// PO file parsing
+// PO file parsing with robust metadata handling
 pub fn parse_po_file(input_path: &Path) -> Result<Catalog> {
-    po_file::parse(input_path)
+    // Always preprocess the content to ensure required metadata fields are present
+    let content = std::fs::read_to_string(input_path)?;
+    let preprocessed_content = preprocess_po_content(&content)?;
+    
+    // Write the preprocessed content to a temporary file and parse it
+    let temp_file = tempfile::NamedTempFile::new()?;
+    std::fs::write(temp_file.path(), preprocessed_content)?;
+    
+    po_file::parse(temp_file.path())
         .map_err(|e| ConversionError::PoParseError(format!("Failed to parse PO file: {}", e)).into())
+}
+
+// Preprocess PO content to ensure all required (by polib) header metadata fields are present
+pub fn preprocess_po_content(content: &str) -> Result<String> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result = Vec::new();
+    let mut found_metadata = HashMap::new();
+    let mut header_section = false;
+    let mut header_lines = Vec::new();
+    
+    for line in lines {
+        // Detect start of header section
+        if line.trim() == "msgid \"\"" {
+            header_section = true;
+            result.push(line.to_string());
+            continue;
+        }
+        
+        // Continue with msgstr ""
+        if header_section && line.trim() == "msgstr \"\"" {
+            result.push(line.to_string());
+            continue;
+        }
+        
+        // Collect existing metadata lines
+        if header_section && line.starts_with('"') && line.ends_with('"') {
+            header_lines.push(line.to_string());
+            
+            // Parse metadata field name for tracking
+            if let Some(colon_pos) = line.find(':') {
+                let field_name = &line[1..colon_pos]; // Remove starting quote
+                found_metadata.insert(field_name.to_string(), true);
+            }
+            continue;
+        }
+        
+        // End of header section - add missing required fields
+        if header_section && (!line.starts_with('"') || line.trim().is_empty()) {
+            header_section = false;
+            
+            // Add missing required metadata fields that cause panics in polib
+            let required_fields = [
+                "Project-Id-Version",
+                "POT-Creation-Date", 
+                "PO-Revision-Date",
+                "Last-Translator",
+                "Language-Team",
+                "MIME-Version",
+                "Content-Type",
+                "Content-Transfer-Encoding",
+                "Language",
+                "Plural-Forms",
+            ];
+            
+            for field in &required_fields {
+                if !found_metadata.contains_key(*field) {
+                    let default_value = match *field {
+                        "MIME-Version" => "1.0",
+                        "Content-Type" => "text/plain; charset=UTF-8",
+                        "Content-Transfer-Encoding" => "8bit",
+                        "Language" => "en",
+                        "Plural-Forms" => "nplurals=1; plural=0;",
+                        _ => "", // Empty string for other fields
+                    };
+                    header_lines.push(format!("\"{}: {}\\n\"", field, default_value));
+                }
+            }
+            
+            // Add all header lines to result
+            result.extend(header_lines.clone());
+            header_lines.clear();
+        }
+        
+        result.push(line.to_string());
+    }
+    
+    Ok(result.join("\n"))
 }
 
 // PO file writing
@@ -25,11 +111,21 @@ pub fn write_po_file(catalog: &Catalog, output_path: &Path) -> Result<()> {
 pub fn fluent_to_po_catalog(resource: FluentResource, locale: &str) -> Result<Catalog> {
     let mut metadata = CatalogMetadata::default();
     
-    // Set catalog metadata properly
-    metadata.content_type = "text/plain; charset=UTF-8".to_string();
-    metadata.language = locale.to_string();
+    // Set header metadata fields
+
+    // Set the Project-Id-Version to the current app version if available
+    metadata.project_id_version = option_env!("CARGO_PKG_VERSION")
+        .map(|v| format!("wordpress-rs {}", v))
+        .unwrap_or_else(|| "wordpress-rs".to_string());
+    metadata.pot_creation_date = chrono::Local::now().format("%Y-%m-%d %H:%M%z").to_string();
+    metadata.po_revision_date = chrono::Local::now().format("%Y-%m-%d %H:%M%z").to_string();
+    metadata.last_translator = "".to_string();
+    metadata.language_team = "".to_string();
     metadata.mime_version = "1.0".to_string();
+    metadata.content_type = "text/plain; charset=UTF-8".to_string();
     metadata.content_transfer_encoding = "8bit".to_string();
+    metadata.language = locale.to_string();
+    // plural_rules is already set by default and has the correct type
     
     let mut catalog = Catalog::new(metadata);
     
