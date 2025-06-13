@@ -176,12 +176,17 @@ class FluentToolsInstaller
   end
 
   def determine_install_dir
-    # For gem installation, put in ruby/bin relative to project root
+    # First check if we're in the development context (has Cargo.toml in parent dirs)
     project_root = find_project_root
     if project_root
+      # Development context - put in ruby/bin relative to project root
       File.join(project_root, 'ruby', 'bin')
     else
-      File.join(Dir.pwd, '..', '..', 'bin') # Fallback for extconf.rb context
+      # We're in a gem installation context - create bin directory in current gem location
+      current_dir = File.expand_path('..', __dir__)
+      bin_dir = File.join(current_dir, 'bin')
+      FileUtils.mkdir_p(bin_dir)
+      bin_dir
     end
   end
 end

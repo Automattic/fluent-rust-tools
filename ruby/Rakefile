@@ -6,18 +6,71 @@ require 'rubocop/rake_task'
 require 'fileutils'
 require 'octokit'
 
-# Load project-specific dependencies when needed
-def require_project_deps
-  require_relative 'lib/fluent_tools/version'
-  require_relative 'lib/fluent_tools/utils'
-end
-
 RSpec::Core::RakeTask.new(:spec)
 RuboCop::RakeTask.new
+
+# Tasks
+
+desc 'Build Rust binary and prepare for gem (mode: docker|native, default: docker)'
+task :build_rust, [:mode] do |_t, args|
+  mode = args[:mode] || 'docker'
+
+  # Build the Rust binary
+  build_rust_binary(mode)
+
+  # Get platform-specific paths
+  paths = get_binary_paths
+  puts "🔍 Detected platform: #{paths[:platform]}"
+
+  # Copy binary for gem use
+  copy_binary_for_gem(paths)
+
+  puts "✅ Rust binary built and prepared for gem"
+end
+
+desc 'Build release binary for current platform and upload to GitHub releases (mode: docker|native, default: docker)'
+task :release_binary, [:mode] do |_t, args|
+  mode = args[:mode] || 'docker'
+
+  build_rust_binary(mode)
+
+  # Get platform-specific paths
+  paths = get_binary_paths
+  puts "🔍 Detected platform: #{paths[:platform]}"
+
+  # Prepare release binary
+  binary_file = prepare_release_binary(paths)
+
+  # Upload to GitHub
+  github_token = ENV['GITHUB_TOKEN'] || raise('GITHUB_TOKEN environment variable is required')
+  client = Octokit::Client.new(access_token: github_token)
+  repo = "#{FluentTools::Utils::REPO_OWNER}/#{FluentTools::Utils::REPO_NAME}"
+
+  release = find_or_create_release(client, repo, FluentTools::VERSION)
+  asset = upload_release_asset(client, release, binary_file)
+
+  puts "✅ Successfully uploaded #{binary_file} to GitHub release!"
+  puts "🔗 Download URL: #{asset.browser_download_url}"
+
+  # Clean up local release binary
+  FileUtils.rm(binary_file)
+end
+
+desc 'Clean all build artifacts'
+task :clean do
+  FileUtils.rm_rf(%w[bin pkg])
+  system("cd #{project_root} && make clean")
+  puts '🧹 Cleaned all build artifacts'
+end
 
 # Helper methods
 def project_root
   @project_root ||= File.expand_path('..', __dir__)
+end
+
+def require_project_deps
+  require_relative 'lib/fluent_tools/version'
+  require_relative 'lib/fluent_tools/utils'
 end
 
 def translate_build_mode(mode)
@@ -37,8 +90,50 @@ def build_rust_binary(mode = 'docker')
   system("cd #{project_root} && make #{target}") || raise('Failed to build Rust binary')
 end
 
-def source_binary_path
-  File.expand_path('../target/release/fluent-tools', __dir__)
+def get_binary_paths(platform = nil)
+  require_project_deps
+
+  platform ||= FluentTools::Utils.detect_platform
+  raise 'Unsupported platform' unless platform
+
+  binary_extension = FluentTools::Utils.binary_extension(platform)
+  binary_name = FluentTools::Utils::BINARY_NAME
+
+  {
+    platform: platform,
+    extension: binary_extension,
+    source_path: File.expand_path("../target/release/#{binary_name}#{binary_extension}", __dir__),
+    gem_binary_path: "bin/#{binary_name}#{binary_extension}",
+    release_binary_name: FluentTools::Utils.binary_name_for_platform(platform)
+  }
+end
+
+def copy_binary_for_gem(paths)
+  FileUtils.mkdir_p('bin')
+
+  unless File.exist?(paths[:source_path])
+    puts "❌ Source binary not found at #{paths[:source_path]}"
+    exit 1
+  end
+
+  FileUtils.cp(paths[:source_path], paths[:gem_binary_path])
+
+  # Make executable on Unix-like systems
+  File.chmod(0o755, paths[:gem_binary_path]) unless FluentTools::Utils.windows_platform?(paths[:platform])
+
+  puts "✅ Binary copied to #{paths[:gem_binary_path]}"
+  paths[:gem_binary_path]
+end
+
+def prepare_release_binary(paths)
+  unless File.exist?(paths[:source_path])
+    puts "❌ Built binary not found at #{paths[:source_path]}"
+    exit 1
+  end
+
+  FileUtils.cp(paths[:source_path], paths[:release_binary_name])
+  puts "📦 Prepared release binary: #{paths[:release_binary_name]}"
+  paths[:release_binary_name]
 end
 
 def find_or_create_release(client, repo, version)
@@ -72,60 +167,6 @@ def upload_release_asset(client, release, binary_name)
   # Upload new asset
   puts "📤 Uploading #{binary_name} to GitHub release..."
   client.upload_asset(release.url, binary_name, { content_type: 'application/octet-stream' })
-end
-
-# Tasks
-desc 'Build Rust binary and prepare for gem (mode: docker|native, default: docker)'
-task :build_rust, [:mode] do |_t, args|
-  mode = args[:mode] || 'docker'
-  build_rust_binary(mode)
-
-  FileUtils.mkdir_p('bin')
-  FileUtils.cp(source_binary_path, 'bin/fluent-tools')
-  puts '✅ Rust binary built and copied to ruby/bin/'
-end
-
-desc 'Build release binary for current platform and upload to GitHub releases (mode: docker|native, default: docker)'
-task :release_binary, [:mode] do |_t, args|
-  require_project_deps
-
-  mode = args[:mode] || 'docker'
-  build_rust_binary(mode)
-
-  # Prepare platform-specific binary
-  platform = FluentTools::Utils.detect_platform
-  raise 'Unsupported platform' unless platform
-
-  puts "🔍 Detected platform: #{platform}"
-
-  binary_extension = FluentTools::Utils.binary_extension(platform)
-  source_binary = File.expand_path("../target/release/#{FluentTools::Utils::BINARY_NAME}#{binary_extension}", __dir__)
-  binary_name = FluentTools::Utils.binary_name_for_platform(platform)
-
-  raise "Built binary not found at #{source_binary}" unless File.exist?(source_binary)
-
-  FileUtils.cp(source_binary, binary_name)
-  puts "📦 Prepared binary: #{binary_name}"
-
-  # Upload to GitHub
-  github_token = ENV['GITHUB_TOKEN'] || raise('GITHUB_TOKEN environment variable is required')
-  client = Octokit::Client.new(access_token: github_token)
-  repo = "#{FluentTools::Utils::REPO_OWNER}/#{FluentTools::Utils::REPO_NAME}"
-
-  release = find_or_create_release(client, repo, FluentTools::VERSION)
-  asset = upload_release_asset(client, release, binary_name)
-
-  puts "✅ Successfully uploaded #{binary_name} to GitHub release!"
-  puts "🔗 Download URL: #{asset.browser_download_url}"
-
-  FileUtils.rm(binary_name)
-end
-
-desc 'Clean all build artifacts'
-task :clean do
-  FileUtils.rm_rf(%w[bin pkg])
-  system("cd #{project_root} && make clean")
-  puts '🧹 Cleaned all build artifacts'
 end
 
 desc 'Run all tests'

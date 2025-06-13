@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'lib/fluent_tools/version'
+require_relative 'lib/fluent_tools/utils'
 
 Gem::Specification.new do |spec|
   spec.name = FluentTools::Utils::BINARY_NAME
@@ -19,7 +20,18 @@ Gem::Specification.new do |spec|
   spec.metadata['source_code_uri'] = spec.homepage
   spec.metadata['changelog_uri'] = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
-  spec.files = `git ls-files`.split($INPUT_RECORD_SEPARATOR)
+  # Explicitly list the files that should be included in the gem
+  spec.files = Dir[
+    'lib/**/*',
+    'ext/**/*',
+    'exe/**/*',
+    'bin/**/*',
+    'installer.rb',
+    '*.md',
+    '*.txt',
+    'LICENSE*',
+    'CHANGELOG*'
+  ].reject { |f| File.directory?(f) }
 
   spec.bindir = 'exe'
   spec.executables = ['fluent-tools']
