@@ -136,9 +136,7 @@ class FluentToolsInstaller
     log_info "📁 Installing binary to: #{binary_path}"
     log_info "📏 Binary data size: #{binary_data.length} bytes"
 
-    if binary_data.empty?
-      raise "Downloaded binary data is empty"
-    end
+    raise 'Downloaded binary data is empty' if binary_data.empty?
 
     File.binwrite(binary_path, binary_data)
 

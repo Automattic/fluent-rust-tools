@@ -53,41 +53,40 @@ module FluentTools
     private
 
     def find_binary_path
-      # Try multiple locations in order of preference
+      binary_name = FluentTools::Utils::BINARY_NAME
 
-      # 1. If we're in a gem installation, look in the gem's bin directory
-      if defined?(Gem) && Gem.loaded_specs && Gem.loaded_specs['fluent-tools']
-        gem_dir = Gem.loaded_specs['fluent-tools'].gem_dir
-        gem_binary = File.join(gem_dir, 'bin', FluentTools::Utils::BINARY_NAME)
-        return gem_binary if File.executable?(gem_binary)
-      end
-
-      # 2. Try the traditional gem installation directory (relative to this file)
-      gem_binary = File.join(__dir__, '..', '..', 'bin', FluentTools::Utils::BINARY_NAME)
+      # 1. Standard gem installation (works for all gem contexts)
+      gem_binary = File.join(__dir__, '..', '..', 'bin', binary_name)
       return gem_binary if File.executable?(gem_binary)
 
-      # 3. Try system PATH
-      system_binary = `which #{FluentTools::Utils::BINARY_NAME} 2>/dev/null`.strip
-      return system_binary unless system_binary.empty?
-
-      # 4. Development context - try project root
-      project_root = find_project_root
-      if project_root
-        dev_binary = File.join(project_root, 'target', 'release', FluentTools::Utils::BINARY_NAME)
+      # 2. Development context
+      if development_context?
+        dev_binary = File.join(project_root, 'target', 'release', binary_name)
         return dev_binary if File.executable?(dev_binary)
 
-        # Also try ruby/bin in development
-        ruby_bin = File.join(project_root, 'ruby', 'bin', FluentTools::Utils::BINARY_NAME)
-        return ruby_bin if File.executable?(ruby_bin)
+        ruby_binary = File.join(project_root, 'ruby', 'bin', binary_name)
+        return ruby_binary if File.executable?(ruby_binary)
       end
 
-      # 5. Last resort - return the gem binary path (might be built during installation)
+      # 3. System PATH
+      system_binary = `which #{binary_name} 2>/dev/null`.strip
+      return system_binary unless system_binary.empty?
+
+      # If nothing found, return the expected gem path for better error messages
       gem_binary
     end
 
+    def development_context?
+      @project_root ||= find_project_root
+      !@project_root.nil?
+    end
+
+    def project_root
+      @project_root ||= find_project_root
+    end
+
     def find_project_root
-      current_dir = __dir__
-      Pathname.new(current_dir).ascend do |dir|
+      Pathname.new(__dir__).ascend do |dir|
         return dir.to_s if File.exist?(File.join(dir, 'Cargo.toml'))
       end
       nil

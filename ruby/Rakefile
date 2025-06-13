@@ -25,7 +25,7 @@ task :build_rust, [:mode] do |_t, args|
   # Copy binary for gem use
   copy_binary_for_gem(paths)
 
-  puts "✅ Rust binary built and prepared for gem"
+  puts '✅ Rust binary built and prepared for gem'
 end
 
 desc 'Build release binary for current platform and upload to GitHub releases (mode: docker|native, default: docker)'
