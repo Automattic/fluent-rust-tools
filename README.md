@@ -105,7 +105,7 @@ FluentTools.po_to_fluent('input.po', 'output.ftl')
 
 ### Android XML Support
 - Convert Fluent messages to Android string resources
-- Handle plurals, variables, and attributes
+- Handle plurals, variables
 - Preserve comments and variable mappings
 - Support for bidirectional conversion
 
@@ -113,13 +113,7 @@ FluentTools.po_to_fluent('input.po', 'output.ftl')
 - Convert Fluent to GNU gettext PO format
 - Support for plural forms
 - Preserve message context and comments
-- Bidirectional conversion with Fluent syntax preservation
-
-### Shared Infrastructure
-- Comprehensive Fluent parser
-- Unified error handling
-- Consistent CLI interface
-- Ruby gem integration
+- Support for bidirectional conversion
 
 ## Development
 
@@ -139,20 +133,6 @@ cd ruby
 bundle install
 bundle exec rspec
 ```
-
-## Dependencies
-
-### Rust Dependencies
-- `clap` - CLI argument parsing
-- `fluent-syntax` - Fluent file parsing
-- `quick-xml` - XML processing for Android resources
-- `polib` - PO file handling
-- `anyhow` - Error handling
-- `thiserror` - Error definitions
-
-### Ruby Dependencies
-- `thor` - CLI framework
-- Standard Ruby libraries for file handling
 
 ## License
 
