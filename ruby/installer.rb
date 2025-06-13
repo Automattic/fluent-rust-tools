@@ -109,7 +109,21 @@ class FluentToolsInstaller
 
   def download_file(url)
     uri = URI(url)
-    Net::HTTP.get(uri)
+
+    Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == 'https') do |http|
+      request = Net::HTTP::Get.new(uri)
+      response = http.request(request)
+
+      # Follow redirects (GitHub releases use them)
+      case response
+      when Net::HTTPRedirection
+        download_file(response['location'])
+      when Net::HTTPSuccess
+        response.body
+      else
+        raise "Download failed: HTTP #{response.code} - #{response.message}"
+      end
+    end
   end
 
   def install_binary(binary_data, platform)
@@ -119,11 +133,19 @@ class FluentToolsInstaller
     binary_extension = FluentTools::Utils.binary_extension(platform)
     binary_path = File.join(install_dir, "#{FluentTools::Utils::BINARY_NAME}#{binary_extension}")
 
+    log_info "📁 Installing binary to: #{binary_path}"
+    log_info "📏 Binary data size: #{binary_data.length} bytes"
+
+    if binary_data.empty?
+      raise "Downloaded binary data is empty"
+    end
+
     File.binwrite(binary_path, binary_data)
 
     # Make executable on Unix-like systems
     File.chmod(0o755, binary_path) unless FluentTools::Utils.windows_platform?(platform)
 
+    log_info "✅ Binary installed successfully (#{File.size(binary_path)} bytes)"
     @binary_path = binary_path
   end
 

@@ -33,7 +33,8 @@ File.write('Makefile', makefile_content)
 unless success
   puts '❌ Installation failed - binary could not be installed'
   puts 'This may still work if the binary becomes available at runtime'
-  puts 'or if you install it manually using: gem install fluent-tools'
+  puts 'or if you build it manually using: rake build_rust'
+  exit 1
 end
 
 puts '✅ Extension configuration complete'
