@@ -5,15 +5,23 @@ use std::fs;
 use crate::shared::fluent_parser;
 use crate::po::po_format::{write_po_file, fluent_to_po_catalog, parse_po_file, po_catalog_to_fluent};
 
-pub fn fluent_to_po(input_path: &Path, output_path: &Path, locale: &str) -> Result<()> {
-    // Read Fluent file
+pub fn fluent_to_po(input_path: &Path, output_path: &Path, locale: &str, original_language_input: Option<&Path>) -> Result<()> {
+    // Read target Fluent file
     let fluent_content = fs::read_to_string(input_path)?;
     
-    // Parse Fluent
+    // Parse target Fluent
     let fluent_resource = fluent_parser::parse_fluent(&fluent_content)?;
     
+    // Read and parse source language file if provided
+    let source_resource = if let Some(source_path) = original_language_input {
+        let source_content = fs::read_to_string(source_path)?;
+        Some(fluent_parser::parse_fluent(&source_content)?)
+    } else {
+        None
+    };
+    
     // Convert to PO
-    let po_catalog = fluent_to_po_catalog(fluent_resource, locale)?;
+    let po_catalog = fluent_to_po_catalog(fluent_resource, locale, source_resource)?;
     
     // Write PO file
     write_po_file(&po_catalog, output_path)?;
@@ -53,7 +61,7 @@ greeting = Hello, {$name}!
         fs::write(&input_path, fluent_content).unwrap();
         
         // Convert to PO
-        let result = fluent_to_po(&input_path, &output_path, "en");
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
         assert!(result.is_ok());
         
         // Verify PO file was created
@@ -80,7 +88,7 @@ greeting = Hello, {$name}!
         fs::write(&input_path, fluent_content).unwrap();
         
         // Convert to PO
-        let result = fluent_to_po(&input_path, &output_path, "en");
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
         assert!(result.is_ok());
         
         // Verify PO file was created with plural forms
@@ -154,7 +162,7 @@ farewell = Goodbye, {$name}!
         fs::write(&original_ftl, original_content).unwrap();
         
         // Convert Fluent to PO
-        let result1 = fluent_to_po(&original_ftl, &po_file, "en");
+        let result1 = fluent_to_po(&original_ftl, &po_file, "en", None);
         assert!(result1.is_ok());
         
         // Convert PO back to Fluent
@@ -185,7 +193,7 @@ farewell = Goodbye, {$name}!
         fs::write(&original_ftl, original_content).unwrap();
         
         // Convert Fluent to PO
-        let result1 = fluent_to_po(&original_ftl, &po_file, "en");
+        let result1 = fluent_to_po(&original_ftl, &po_file, "en", None);
         assert!(result1.is_ok());
         
         // Convert PO back to Fluent
@@ -217,7 +225,7 @@ greeting = Hello, {$name}!
         fs::write(&input_path, fluent_content).unwrap();
         
         // Convert to PO
-        let result = fluent_to_po(&input_path, &output_path, "en");
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
         assert!(result.is_ok());
         
         // Verify PO file contains comments
@@ -233,7 +241,7 @@ greeting = Hello, {$name}!
         let output_path = temp_dir.path().join("output.po");
         
         // Try to convert non-existent file
-        let result = fluent_to_po(&input_path, &output_path, "en");
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
         assert!(result.is_err());
     }
 
@@ -297,6 +305,46 @@ msgstr ""
     }
 
     #[test]
+    fn test_fluent_to_po_with_source_language() {
+        let temp_dir = tempdir().unwrap();
+        let source_path = temp_dir.path().join("source.ftl");
+        let target_path = temp_dir.path().join("target.ftl");
+        let output_path = temp_dir.path().join("output.po");
+        
+        // Create source language Fluent file (English)
+        let source_content = r#"hello = Hello World
+greeting = Hello, {$name}!
+"#;
+        fs::write(&source_path, source_content).unwrap();
+        
+        // Create target language Fluent file (French)
+        let target_content = r#"hello = Bonjour le monde
+greeting = Bonjour, {$name}!
+"#;
+        fs::write(&target_path, target_content).unwrap();
+        
+        // Convert target to PO with source language for msgid
+        let result = fluent_to_po(&target_path, &output_path, "fr", Some(&source_path));
+        assert!(result.is_ok());
+        
+        // Verify PO file was created
+        assert!(output_path.exists());
+        
+        // Read the PO content and verify msgid contains source language text
+        let po_content = fs::read_to_string(&output_path).unwrap();
+        
+        // Check that msgid contains English text (source) and msgstr contains French text (target)
+        assert!(po_content.contains("msgid \"Hello World\""));
+        assert!(po_content.contains("msgstr \"Bonjour le monde\""));
+        assert!(po_content.contains("msgid \"Hello, {$name}!\""));
+        assert!(po_content.contains("msgstr \"Bonjour, {$name}!\""));
+        
+        // Verify the msgctxt is present
+        assert!(po_content.contains("msgctxt \"hello\""));
+        assert!(po_content.contains("msgctxt \"greeting\""));
+    }
+
+    #[test]
     fn test_fluent_to_po_includes_required_metadata() {
         // Test that PO files we generate include all required metadata fields
         let temp_dir = tempdir().unwrap();
@@ -311,7 +359,7 @@ greeting = Hello, {$name}!
         fs::write(&input_path, fluent_content).unwrap();
         
         // Convert Fluent to PO
-        let result = fluent_to_po(&input_path, &po_path, "en");
+        let result = fluent_to_po(&input_path, &po_path, "en", None);
         assert!(result.is_ok());
         
         // Verify PO file was created

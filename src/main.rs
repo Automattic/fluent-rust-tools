@@ -70,6 +70,9 @@ enum PoCommands {
         /// Source locale (e.g., en-US)
         #[arg(short, long, default_value = "en-US")]
         locale: String,
+        /// Source language Fluent file (for translations, this provides the original strings for msgid)
+        #[arg(long)]
+        original_language_input: Option<PathBuf>,
     },
     /// Convert PO files to Fluent format
     ToFluent {
@@ -109,8 +112,8 @@ fn main() -> Result<()> {
         }
         Commands::Po { po_command } => {
             match po_command {
-                PoCommands::ToPo { input, output, locale } => {
-                    fluent_to_po(&input, &output, &locale)?;
+                PoCommands::ToPo { input, output, locale, original_language_input } => {
+                    fluent_to_po(&input, &output, &locale, original_language_input.as_deref())?;
                     println!("Successfully converted {} to {}", input.display(), output.display());
                 }
                 PoCommands::ToFluent { input, output } => {

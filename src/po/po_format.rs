@@ -9,13 +9,46 @@ use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern,
 use crate::shared::error::ConversionError;
 use std::collections::HashMap;
 
-// PO file parsing with robust metadata handling
+// =============================================================================
+// Constants
+// =============================================================================
+
+const REQUIRED_METADATA_FIELDS: &[&str] = &[
+    "Project-Id-Version",
+    "POT-Creation-Date", 
+    "PO-Revision-Date",
+    "Last-Translator",
+    "Language-Team",
+    "MIME-Version",
+    "Content-Type",
+    "Content-Transfer-Encoding",
+    "Language",
+    "Plural-Forms",
+];
+
+const DEFAULT_CHARSET: &str = "text/plain; charset=UTF-8";
+const DEFAULT_ENCODING: &str = "8bit";
+const DEFAULT_MIME_VERSION: &str = "1.0";
+const DEFAULT_LANGUAGE: &str = "en";
+const DEFAULT_PLURAL_FORMS: &str = "nplurals=1; plural=0;";
+const FLUENT_SELECTOR_PREFIX: &str = "FLUENT_SELECTOR:";
+const FLUENT_MARKER_PREFIX: &str = "FLUENT_";
+
+// Fluent to PO plural form markers
+const FLUENT_ZERO_MARKER: &str = "FLUENT_ZERO";
+const FLUENT_ONE_MARKER: &str = "FLUENT_ONE";
+const FLUENT_OTHER_MARKER: &str = "FLUENT_OTHER";
+
+// =============================================================================
+// Public API Functions
+// =============================================================================
+
+/// Parse a PO file with robust metadata handling
 pub fn parse_po_file(input_path: &Path) -> Result<Catalog> {
-    // Always preprocess the content to ensure required metadata fields are present
     let content = std::fs::read_to_string(input_path)?;
     let preprocessed_content = preprocess_po_content(&content)?;
     
-    // Write the preprocessed content to a temporary file and parse it
+    // Write preprocessed content to temporary file for parsing
     let temp_file = tempfile::NamedTempFile::new()?;
     std::fs::write(temp_file.path(), preprocessed_content)?;
     
@@ -23,143 +56,51 @@ pub fn parse_po_file(input_path: &Path) -> Result<Catalog> {
         .map_err(|e| ConversionError::PoParseError(format!("Failed to parse PO file: {}", e)).into())
 }
 
-// Preprocess PO content to ensure all required (by polib) header metadata fields are present
+/// Preprocess PO content to ensure all required metadata fields are present
 pub fn preprocess_po_content(content: &str) -> Result<String> {
-    let lines: Vec<&str> = content.lines().collect();
-    let mut result = Vec::new();
-    let mut found_metadata = HashMap::new();
-    let mut header_section = false;
-    let mut header_lines = Vec::new();
-    
-    for line in lines {
-        // Detect start of header section
-        if line.trim() == "msgid \"\"" {
-            header_section = true;
-            result.push(line.to_string());
-            continue;
-        }
-        
-        // Continue with msgstr ""
-        if header_section && line.trim() == "msgstr \"\"" {
-            result.push(line.to_string());
-            continue;
-        }
-        
-        // Collect existing metadata lines
-        if header_section && line.starts_with('"') && line.ends_with('"') {
-            header_lines.push(line.to_string());
-            
-            // Parse metadata field name for tracking
-            if let Some(colon_pos) = line.find(':') {
-                let field_name = &line[1..colon_pos]; // Remove starting quote
-                found_metadata.insert(field_name.to_string(), true);
-            }
-            continue;
-        }
-        
-        // End of header section - add missing required fields
-        if header_section && (!line.starts_with('"') || line.trim().is_empty()) {
-            header_section = false;
-            
-            // Add missing required metadata fields that cause panics in polib
-            let required_fields = [
-                "Project-Id-Version",
-                "POT-Creation-Date", 
-                "PO-Revision-Date",
-                "Last-Translator",
-                "Language-Team",
-                "MIME-Version",
-                "Content-Type",
-                "Content-Transfer-Encoding",
-                "Language",
-                "Plural-Forms",
-            ];
-            
-            for field in &required_fields {
-                if !found_metadata.contains_key(*field) {
-                    let default_value = match *field {
-                        "MIME-Version" => "1.0",
-                        "Content-Type" => "text/plain; charset=UTF-8",
-                        "Content-Transfer-Encoding" => "8bit",
-                        "Language" => "en",
-                        "Plural-Forms" => "nplurals=1; plural=0;",
-                        _ => "", // Empty string for other fields
-                    };
-                    header_lines.push(format!("\"{}: {}\\n\"", field, default_value));
-                }
-            }
-            
-            // Add all header lines to result
-            result.extend(header_lines.clone());
-            header_lines.clear();
-        }
-        
-        result.push(line.to_string());
-    }
-    
-    Ok(result.join("\n"))
+    let mut processor = PoContentProcessor::new(content);
+    processor.process()
 }
 
-// PO file writing
+/// Write a PO catalog to file
 pub fn write_po_file(catalog: &Catalog, output_path: &Path) -> Result<()> {
     po_file::write(catalog, output_path)
         .map_err(|e| ConversionError::PoWriteError(format!("Failed to write PO file: {}", e)))?;
     Ok(())
 }
 
-// Fluent to PO conversion
-pub fn fluent_to_po_catalog(resource: FluentResource, locale: &str) -> Result<Catalog> {
-    let mut metadata = CatalogMetadata::default();
-    
-    // Set header metadata fields
-
-    // Set the Project-Id-Version to the current app version if available
-    metadata.project_id_version = option_env!("CARGO_PKG_VERSION")
-        .map(|v| format!("wordpress-rs {}", v))
-        .unwrap_or_else(|| "wordpress-rs".to_string());
-    metadata.pot_creation_date = chrono::Local::now().format("%Y-%m-%d %H:%M%z").to_string();
-    metadata.po_revision_date = chrono::Local::now().format("%Y-%m-%d %H:%M%z").to_string();
-    metadata.last_translator = "".to_string();
-    metadata.language_team = "".to_string();
-    metadata.mime_version = "1.0".to_string();
-    metadata.content_type = "text/plain; charset=UTF-8".to_string();
-    metadata.content_transfer_encoding = "8bit".to_string();
-    metadata.language = locale.to_string();
-    // plural_rules is already set by default and has the correct type
-    
+/// Convert a Fluent resource to a PO catalog
+pub fn fluent_to_po_catalog(
+    target_resource: FluentResource, 
+    locale: &str, 
+    source_resource: Option<FluentResource>
+) -> Result<Catalog> {
+    let metadata = create_po_metadata(locale);
     let mut catalog = Catalog::new(metadata);
     
-    for message in resource.messages {
-        convert_message_to_po(&mut catalog, &message)?;
+    let source_lookup = create_source_message_lookup(source_resource.as_ref());
+    
+    for message in target_resource.messages {
+        let source_message = source_lookup.get(&message.id).copied();
+        convert_fluent_message_to_po(&mut catalog, &message, source_message)?;
     }
     
     Ok(catalog)
 }
 
-// PO to Fluent conversion
+/// Convert a PO catalog to Fluent format
 pub fn po_catalog_to_fluent(catalog: Catalog) -> Result<String> {
     let mut content = String::new();
     
     for message in catalog.messages() {
-        // Add comments from extracted comments if present
-        if !message.comments().is_empty() {
-            for comment_line in message.comments().lines() {
-                content.push_str(&format!("# {}\n", comment_line));
-            }
-        }
+        add_comments_to_fluent(&mut content, message.comments());
         
-        // Generate Fluent key from msgctxt or msgid
-        let key = if !message.msgctxt().is_empty() {
-            message.msgctxt().to_string()
-        } else {
-            message.msgid().replace(' ', "-").replace('"', "").to_lowercase()
-        };
+        let key = generate_fluent_key_from_message(message);
         
-        // Convert message based on whether it's plural or singular
         if message.is_plural() {
-            convert_plural_message_to_fluent(&mut content, &key, message)?;
+            convert_plural_po_message_to_fluent(&mut content, &key, message)?;
         } else {
-            convert_singular_message_to_fluent(&mut content, &key, message)?;
+            convert_singular_po_message_to_fluent(&mut content, &key, message)?;
         }
         
         content.push('\n');
@@ -168,177 +109,466 @@ pub fn po_catalog_to_fluent(catalog: Catalog) -> Result<String> {
     Ok(content)
 }
 
-fn convert_message_to_po(catalog: &mut Catalog, message: &FluentMessage) -> Result<()> {
-    let msgctxt = message.id.clone();
+// =============================================================================
+// Helper Structures
+// =============================================================================
+
+/// Helper struct for processing PO content
+struct PoContentProcessor<'a> {
+    lines: Vec<&'a str>,
+    result: Vec<String>,
+    found_metadata: HashMap<String, bool>,
+    header_section: bool,
+    header_lines: Vec<String>,
+}
+
+impl<'a> PoContentProcessor<'a> {
+    fn new(content: &'a str) -> Self {
+        Self {
+            lines: content.lines().collect(),
+            result: Vec::new(),
+            found_metadata: HashMap::new(),
+            header_section: false,
+            header_lines: Vec::new(),
+        }
+    }
     
-    // Handle main message value
+    fn process(&mut self) -> Result<String> {
+        let lines = self.lines.clone();
+        for line in &lines {
+            self.process_line(line);
+        }
+        Ok(self.result.join("\n"))
+    }
+    
+    fn process_line(&mut self, line: &str) {
+        match line.trim() {
+            "msgid \"\"" => self.start_header_section(line),
+            "msgstr \"\"" if self.header_section => self.add_header_line(line),
+            _ => self.handle_other_line(line),
+        }
+    }
+    
+    fn start_header_section(&mut self, line: &str) {
+        self.header_section = true;
+        self.add_header_line(line);
+    }
+    
+    fn handle_other_line(&mut self, line: &str) {
+        if self.header_section && self.is_metadata_line(line) {
+            self.process_metadata_line(line);
+        } else if self.header_section && self.is_end_of_header(line) {
+            self.finalize_header();
+            self.add_line(line);
+        } else {
+            self.add_line(line);
+        }
+    }
+    
+    fn is_metadata_line(&self, line: &str) -> bool {
+        line.starts_with('"') && line.ends_with('"')
+    }
+    
+    fn is_end_of_header(&self, line: &str) -> bool {
+        !line.starts_with('"') || line.trim().is_empty()
+    }
+    
+    fn process_metadata_line(&mut self, line: &str) {
+        self.header_lines.push(line.to_string());
+        
+        if let Some(colon_pos) = line.find(':') {
+            let field_name = &line[1..colon_pos]; // Remove starting quote
+            self.found_metadata.insert(field_name.to_string(), true);
+        }
+    }
+    
+    fn finalize_header(&mut self) {
+        self.header_section = false;
+        self.add_missing_metadata_fields();
+        self.result.extend(self.header_lines.drain(..));
+    }
+    
+    fn add_missing_metadata_fields(&mut self) {
+        for &field in REQUIRED_METADATA_FIELDS {
+            if !self.found_metadata.contains_key(field) {
+                let default_value = get_default_metadata_value(field);
+                self.header_lines.push(format!("\"{}: {}\\n\"", field, default_value));
+            }
+        }
+    }
+    
+    fn add_line(&mut self, line: &str) {
+        self.result.push(line.to_string());
+    }
+    
+    fn add_header_line(&mut self, line: &str) {
+        self.header_lines.push(line.to_string());
+    }
+}
+
+/// Information about plural forms in Fluent messages
+#[derive(Debug, Clone)]
+struct PluralInfo {
+    selector: String,
+    forms: Vec<(String, String)>, // (key, text) pairs
+}
+
+/// Categorized plural forms for easier processing
+#[derive(Default)]
+struct CategorizedPluralForms {
+    zero_form: Option<String>,
+    one_form: Option<String>,
+    other_form: Option<String>,
+    numeric_forms: HashMap<String, String>,
+}
+
+// =============================================================================
+// Core Conversion Functions
+// =============================================================================
+
+fn convert_fluent_message_to_po(
+    catalog: &mut Catalog, 
+    message: &FluentMessage, 
+    source_message: Option<&FluentMessage>
+) -> Result<()> {
+    // Convert main message value
     if let Some(pattern) = &message.value {
-        let msgid = extract_pattern_text(pattern);
-        
-        // Extract comment if present
-        let extracted_comments = message.comment.as_ref().unwrap_or(&String::new()).clone();
-        
-        // Check if this is a plural pattern
+        convert_main_message_value(catalog, message, pattern, source_message)?;
+    }
+    
+    // Convert attributes
+    convert_message_attributes(catalog, message, source_message)?;
+    
+    Ok(())
+}
+
+fn convert_main_message_value(
+    catalog: &mut Catalog,
+    message: &FluentMessage,
+    pattern: &FluentPattern,
+    source_message: Option<&FluentMessage>,
+) -> Result<()> {
+    let target_text = extract_pattern_text(pattern);
+    let comments = message.comment.as_ref().unwrap_or(&String::new()).clone();
+    
         if let Some(plural_info) = extract_plural_info(pattern) {
-            // Find the appropriate msgid and msgid_plural
-            let (msgid, msgid_plural, msgstr_forms) = create_po_plural_forms(&plural_info);
-            
-            // Create a plural message
+        convert_plural_message(catalog, message, &plural_info, source_message, &comments)?;
+    } else {
+        convert_singular_message(catalog, message, &target_text, source_message, &comments)?;
+    }
+    
+    Ok(())
+}
+
+fn convert_plural_message(
+    catalog: &mut Catalog,
+    message: &FluentMessage,
+    plural_info: &PluralInfo,
+    source_message: Option<&FluentMessage>,
+    comments: &str,
+) -> Result<()> {
+    let (msgid, msgid_plural, msgstr_forms) = get_plural_forms(plural_info, source_message)?;
+    
             let mut msg_builder = PoMessage::build_plural();
             msg_builder
-                .with_msgctxt(msgctxt)
+        .with_msgctxt(message.id.clone())
                 .with_msgid(msgid)
                 .with_msgid_plural(msgid_plural)
                 .with_msgstr_plural(msgstr_forms);
             
-            // Store selector information in comments to preserve it for roundtrip
-            let selector_comment = format!("FLUENT_SELECTOR:{}", plural_info.selector);
-            let combined_comments = if extracted_comments.is_empty() {
-                selector_comment
-            } else {
-                format!("{}\n{}", extracted_comments, selector_comment)
-            };
+    let combined_comments = create_combined_comments(comments, &plural_info.selector);
+    if !combined_comments.is_empty() {
             msg_builder.with_comments(combined_comments);
-            
-            let message = msg_builder.done();
-            catalog.append_or_update(message);
-        } else {
-            // Create a singular message
-            let mut msg_builder = PoMessage::build_singular();
-            msg_builder
-                .with_msgctxt(msgctxt)
-                .with_msgid(msgid.clone())
-                .with_msgstr(msgid); // For now, we use the same text as the translation
-            
-            if !extracted_comments.is_empty() {
-                msg_builder.with_comments(extracted_comments);
-            }
-            
-            let message = msg_builder.done();
-            catalog.append_or_update(message);
-        }
     }
     
-    // Handle attributes
+    catalog.append_or_update(msg_builder.done());
+    Ok(())
+}
+
+fn convert_singular_message(
+    catalog: &mut Catalog,
+    message: &FluentMessage,
+    target_text: &str,
+    source_message: Option<&FluentMessage>,
+    comments: &str,
+) -> Result<()> {
+    let msgid = get_source_text_or_target(source_message, target_text);
+    
+            let mut msg_builder = PoMessage::build_singular();
+            msg_builder
+        .with_msgctxt(message.id.clone())
+        .with_msgid(msgid)
+        .with_msgstr(target_text.to_string());
+    
+    if !comments.is_empty() {
+        msg_builder.with_comments(comments.to_string());
+    }
+    
+    catalog.append_or_update(msg_builder.done());
+    Ok(())
+}
+
+fn convert_message_attributes(
+    catalog: &mut Catalog,
+    message: &FluentMessage,
+    source_message: Option<&FluentMessage>,
+) -> Result<()> {
     for (attr_name, attr_pattern) in &message.attributes {
         let attr_msgctxt = format!("{}.{}", message.id, attr_name);
-        let attr_msgid = extract_pattern_text(attr_pattern);
+        let target_attr_text = extract_pattern_text(attr_pattern);
+        
+        let source_attr_text = source_message
+            .and_then(|sm| sm.attributes.get(attr_name))
+            .map(|sp| extract_pattern_text(sp));
+        
+        let msgid = source_attr_text.unwrap_or_else(|| target_attr_text.clone());
         
         let mut msg_builder = PoMessage::build_singular();
         msg_builder
             .with_msgctxt(attr_msgctxt)
-            .with_msgid(attr_msgid.clone())
-            .with_msgstr(attr_msgid); // For now, we use the same text as the translation
+            .with_msgid(msgid)
+            .with_msgstr(target_attr_text);
         
-        let message = msg_builder.done();
-        catalog.append_or_update(message);
+        catalog.append_or_update(msg_builder.done());
     }
     
     Ok(())
 }
 
-fn convert_singular_message_to_fluent(content: &mut String, key: &str, message: &dyn MessageView) -> Result<()> {
+fn convert_singular_po_message_to_fluent(
+    content: &mut String, 
+    key: &str, 
+    message: &dyn MessageView
+) -> Result<()> {
     let msgstr = message.msgstr()?;
     
     if msgstr.contains('\n') {
-        // Multi-line message
-        content.push_str(&format!("{} =\n", key));
-        for line in msgstr.lines() {
-            content.push_str(&format!("    {}\n", unescape_fluent_value(line)));
-        }
+        write_multiline_fluent_message(content, key, &msgstr);
     } else {
-        // Single-line message
-        content.push_str(&format!("{} = {}\n", key, unescape_fluent_value(msgstr)));
+        write_singleline_fluent_message(content, key, &msgstr);
     }
     
     Ok(())
 }
 
-fn convert_plural_message_to_fluent(content: &mut String, key: &str, message: &dyn MessageView) -> Result<()> {
-    if let Ok(msgstr_plural) = message.msgstr_plural() {
-        // Extract selector from comments, fallback to "count"
-        let selector = extract_selector_from_comments(message.comments()).unwrap_or_else(|| "count".to_string());
-        
-        // Create a select expression for plurals
+fn convert_plural_po_message_to_fluent(
+    content: &mut String, 
+    key: &str, 
+    message: &dyn MessageView
+) -> Result<()> {
+    let msgstr_plural = message.msgstr_plural()?;
+    let selector = extract_selector_from_comments(message.comments())
+        .unwrap_or_else(|| "count".to_string());
+    
         content.push_str(&format!("{} = {{${} ->\n", key, selector));
         
         let mut has_other = false;
-        
         for msgstr in msgstr_plural.iter() {
+        has_other = process_plural_form(content, msgstr, has_other);
+    }
+    
+    ensure_other_form_exists(content, message, has_other);
+    content.push_str("}\n");
+    
+    Ok(())
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+fn create_po_metadata(locale: &str) -> CatalogMetadata {
+    let mut metadata = CatalogMetadata::default();
+    
+    metadata.project_id_version = option_env!("CARGO_PKG_VERSION")
+        .map(|v| format!("wordpress-rs {}", v))
+        .unwrap_or_else(|| "wordpress-rs".to_string());
+    
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M%z").to_string();
+    metadata.pot_creation_date = now.clone();
+    metadata.po_revision_date = now;
+    
+    metadata.last_translator = String::new();
+    metadata.language_team = String::new();
+    metadata.mime_version = DEFAULT_MIME_VERSION.to_string();
+    metadata.content_type = DEFAULT_CHARSET.to_string();
+    metadata.content_transfer_encoding = DEFAULT_ENCODING.to_string();
+    metadata.language = locale.to_string();
+    
+    metadata
+}
+
+fn create_source_message_lookup(source_resource: Option<&FluentResource>) -> HashMap<String, &FluentMessage> {
+    source_resource
+        .map(|sr| sr.messages.iter().map(|msg| (msg.id.clone(), msg)).collect())
+        .unwrap_or_default()
+}
+
+fn get_default_metadata_value(field: &str) -> &'static str {
+    match field {
+        "MIME-Version" => DEFAULT_MIME_VERSION,
+        "Content-Type" => DEFAULT_CHARSET,
+        "Content-Transfer-Encoding" => DEFAULT_ENCODING,
+        "Language" => DEFAULT_LANGUAGE,
+        "Plural-Forms" => DEFAULT_PLURAL_FORMS,
+        _ => "",
+    }
+}
+
+fn add_comments_to_fluent(content: &mut String, comments: &str) {
+    if !comments.is_empty() {
+        for comment_line in comments.lines() {
+            content.push_str(&format!("# {}\n", comment_line));
+        }
+    }
+}
+
+fn generate_fluent_key_from_message(message: &dyn MessageView) -> String {
+    if !message.msgctxt().is_empty() {
+        message.msgctxt().to_string()
+    } else {
+        message.msgid()
+            .replace(' ', "-")
+            .replace('"', "")
+            .to_lowercase()
+    }
+}
+
+fn get_source_text_or_target(source_message: Option<&FluentMessage>, target_text: &str) -> String {
+    source_message
+        .and_then(|sm| sm.value.as_ref())
+        .map(|sp| extract_pattern_text(sp))
+        .unwrap_or_else(|| target_text.to_string())
+}
+
+fn create_combined_comments(existing_comments: &str, selector: &str) -> String {
+    let selector_comment = format!("{}{}", FLUENT_SELECTOR_PREFIX, selector);
+    
+    if existing_comments.is_empty() {
+        selector_comment
+    } else {
+        format!("{}\n{}", existing_comments, selector_comment)
+    }
+}
+
+fn get_plural_forms(
+    plural_info: &PluralInfo, 
+    source_message: Option<&FluentMessage>
+) -> Result<(String, String, Vec<String>)> {
+    if let Some(source_plural_info) = get_source_plural_info(source_message) {
+        // Use source for msgid, target for msgstr
+        let (source_msgid, source_msgid_plural, _) = create_po_plural_forms(&source_plural_info);
+        let (_, _, target_msgstr_forms) = create_po_plural_forms(plural_info);
+        Ok((source_msgid, source_msgid_plural, target_msgstr_forms))
+    } else {
+        // Use target for both
+        Ok(create_po_plural_forms(plural_info))
+    }
+}
+
+fn get_source_plural_info(source_message: Option<&FluentMessage>) -> Option<PluralInfo> {
+    source_message
+        .and_then(|sm| sm.value.as_ref())
+        .and_then(|sp| extract_plural_info(sp))
+}
+
+fn write_multiline_fluent_message(content: &mut String, key: &str, msgstr: &str) {
+    let lines: Vec<&str> = msgstr.lines().collect();
+    
+    if lines.is_empty() {
+        content.push_str(&format!("{} =\n", key));
+        return;
+    }
+    
+    // First line goes on the same line as the key = 
+    content.push_str(&format!("{} = {}\n", key, unescape_fluent_value(lines[0])));
+    
+    // Subsequent lines are indented
+    for line in &lines[1..] {
+        content.push_str(&format!("    {}\n", unescape_fluent_value(line)));
+    }
+}
+
+fn write_singleline_fluent_message(content: &mut String, key: &str, msgstr: &str) {
+    content.push_str(&format!("{} = {}\n", key, unescape_fluent_value(msgstr)));
+}
+
+fn process_plural_form(content: &mut String, msgstr: &str, mut has_other: bool) -> bool {
             let cleaned_msgstr = unescape_fluent_value(msgstr);
             
-            // Parse our special markers to reconstruct the original Fluent structure
             if let Some(colon_pos) = cleaned_msgstr.find(':') {
                 let (marker, text) = cleaned_msgstr.split_at(colon_pos);
                 let text = &text[1..]; // Remove the ':' character
                 
                 match marker {
-                    "FLUENT_ZERO" => {
+            FLUENT_ZERO_MARKER => {
                         content.push_str(&format!("    [0] {}\n", text));
                     }
-                    "FLUENT_ONE" => {
+            FLUENT_ONE_MARKER => {
                         content.push_str(&format!("    [one] {}\n", text));
                     }
-                    "FLUENT_OTHER" => {
+            FLUENT_OTHER_MARKER => {
                         if !has_other {
                             content.push_str(&format!("   *[other] {}\n", text));
                             has_other = true;
                         }
                     }
-                    other_marker if other_marker.starts_with("FLUENT_") => {
-                        let key_part = &other_marker[7..]; // Remove "FLUENT_" prefix
-                        let key_lower = key_part.to_lowercase();
-                        if key_lower == "other" && !has_other {
-                            content.push_str(&format!("   *[other] {}\n", text));
-                            has_other = true;
-                        } else {
-                            // Handle numeric or other special keys
-                            content.push_str(&format!("    [{}] {}\n", key_lower, text));
-                        }
+            other_marker if other_marker.starts_with(FLUENT_MARKER_PREFIX) => {
+                has_other = handle_other_fluent_marker(content, other_marker, text, has_other);
                     }
                     _ => {
-                        // Fallback for malformed markers - treat as other
+                // Fallback for malformed markers
                         if !has_other {
                             content.push_str(&format!("   *[other] {}\n", text));
                             has_other = true;
                         }
                     }
                 }
-            } else {
-                // Fallback for messages without markers - treat as other
-                if !has_other {
+    } else if !has_other {
+        // Fallback for messages without markers
                     content.push_str(&format!("   *[other] {}\n", cleaned_msgstr));
                     has_other = true;
-                }
-            }
-        }
-        
-        // Ensure we always have an *[other] case
-        if !has_other {
-            content.push_str(&format!("   *[other] {}\n", message.msgid_plural().unwrap_or("")));
-        }
-        
-        content.push_str("}\n");
     }
     
-    Ok(())
+    has_other
 }
 
-struct PluralInfo {
-    selector: String, // The selector variable name (e.g., "count")
-    forms: Vec<(String, String)>, // (key, text) pairs for all plural forms
+fn handle_other_fluent_marker(
+    content: &mut String, 
+    marker: &str, 
+    text: &str, 
+    mut has_other: bool
+) -> bool {
+    let key_part = &marker[FLUENT_MARKER_PREFIX.len()..];
+    let key_lower = key_part.to_lowercase();
+    
+    if key_lower == "other" && !has_other {
+        content.push_str(&format!("   *[other] {}\n", text));
+        has_other = true;
+    } else {
+        content.push_str(&format!("    [{}] {}\n", key_lower, text));
+    }
+    
+    has_other
+}
+
+fn ensure_other_form_exists(content: &mut String, message: &dyn MessageView, has_other: bool) {
+    if !has_other {
+        let fallback_text = message.msgid_plural().unwrap_or("");
+        content.push_str(&format!("   *[other] {}\n", fallback_text));
+    }
 }
 
 fn extract_plural_info(pattern: &FluentPattern) -> Option<PluralInfo> {
-    // Look for plural elements in the pattern
     for element in &pattern.elements {
         if let FluentElement::Plural { selector, variants } = element {
-            let mut forms = Vec::new();
-            
-            for (key, variant_pattern) in variants {
+            let forms: Vec<(String, String)> = variants
+                .iter()
+                .map(|(key, variant_pattern)| {
                 let text = extract_pattern_text(variant_pattern);
-                forms.push((key.clone(), text));
-            }
+                    (key.clone(), text)
+                })
+                .collect();
             
             if !forms.is_empty() {
                 return Some(PluralInfo { 
@@ -352,75 +582,90 @@ fn extract_plural_info(pattern: &FluentPattern) -> Option<PluralInfo> {
 }
 
 fn create_po_plural_forms(plural_info: &PluralInfo) -> (String, String, Vec<String>) {
-    let mut zero_form = None;
-    let mut one_form = None;
-    let mut other_form = None;
-    let mut numeric_forms = std::collections::HashMap::new();
+    let categorized_forms = categorize_plural_forms(&plural_info.forms);
     
-    // Categorize all the forms
-    for (key, text) in &plural_info.forms {
+    let msgid = determine_msgid(&categorized_forms, &plural_info.forms);
+    let msgid_plural = determine_msgid_plural(&categorized_forms, &plural_info.forms);
+    let msgstr_forms = create_msgstr_forms(plural_info, &categorized_forms, &msgid_plural);
+    
+    (msgid, msgid_plural, msgstr_forms)
+}
+
+fn categorize_plural_forms(forms: &[(String, String)]) -> CategorizedPluralForms {
+    let mut categorized = CategorizedPluralForms::default();
+    
+    for (key, text) in forms {
         match key.as_str() {
-            "0" => zero_form = Some(text.clone()),
-            "1" => { numeric_forms.insert("1".to_string(), text.clone()); },
-            "one" => one_form = Some(text.clone()),
-            "other" => other_form = Some(text.clone()),
+            "0" => categorized.zero_form = Some(text.clone()),
+            "1" => { categorized.numeric_forms.insert("1".to_string(), text.clone()); },
+            "one" => categorized.one_form = Some(text.clone()),
+            "other" => categorized.other_form = Some(text.clone()),
             _num if key.chars().all(|c| c.is_ascii_digit()) => {
-                numeric_forms.insert(key.clone(), text.clone());
+                categorized.numeric_forms.insert(key.clone(), text.clone());
             },
             _ => {} // Handle other cases like "few", "many" later if needed
         }
     }
     
-    // For msgid (singular), prefer [one] form, fallback to [0] or first available
-    let msgid = one_form.as_ref()
-        .or(zero_form.as_ref())
-        .or(numeric_forms.get("1"))
-        .or_else(|| plural_info.forms.first().map(|(_, text)| text))
-        .unwrap_or(&"".to_string())
-        .clone();
-        
-    // For msgid_plural, use [other] form
-    let msgid_plural = other_form.as_ref()
-        .or_else(|| plural_info.forms.iter().find(|(key, _)| key != "one" && key != "0" && key != "1").map(|(_, text)| text))
-        .unwrap_or(&"".to_string())
-        .clone();
-    
-    // Create msgstr array that preserves all forms with special markers
-    // This allows us to reconstruct the original Fluent structure
+    categorized
+}
+
+fn determine_msgid(categorized: &CategorizedPluralForms, all_forms: &[(String, String)]) -> String {
+    categorized.one_form.as_ref()
+        .or(categorized.zero_form.as_ref())
+        .or_else(|| categorized.numeric_forms.get("1"))
+        .or_else(|| all_forms.first().map(|(_, text)| text))
+        .unwrap_or(&String::new())
+        .clone()
+}
+
+fn determine_msgid_plural(categorized: &CategorizedPluralForms, all_forms: &[(String, String)]) -> String {
+    categorized.other_form.as_ref()
+        .or_else(|| all_forms.iter()
+            .find(|(key, _)| key != "one" && key != "0" && key != "1")
+            .map(|(_, text)| text))
+        .unwrap_or(&String::new())
+        .clone()
+}
+
+fn create_msgstr_forms(
+    plural_info: &PluralInfo,
+    categorized: &CategorizedPluralForms, 
+    msgid_plural: &str
+) -> Vec<String> {
     let mut msgstr_forms = Vec::new();
     
-    // Include all forms in order with their type markers
-    if let Some(zero) = &zero_form {
-        msgstr_forms.push(format!("FLUENT_ZERO:{}", zero));
+    // Add forms with markers to preserve original structure
+    if let Some(ref zero) = categorized.zero_form {
+        msgstr_forms.push(format!("{}:{}", FLUENT_ZERO_MARKER, zero));
     }
     
-    if let Some(one) = &one_form {
-        msgstr_forms.push(format!("FLUENT_ONE:{}", one));
+    if let Some(ref one) = categorized.one_form {
+        msgstr_forms.push(format!("{}:{}", FLUENT_ONE_MARKER, one));
     }
     
-    if let Some(other) = &other_form {
-        msgstr_forms.push(format!("FLUENT_OTHER:{}", other));
+    if let Some(ref other) = categorized.other_form {
+        msgstr_forms.push(format!("{}:{}", FLUENT_OTHER_MARKER, other));
     }
     
-    // If we don't have standard forms, preserve original order
+    // If no standard forms, preserve all original forms
     if msgstr_forms.is_empty() {
         for (key, text) in &plural_info.forms {
-            msgstr_forms.push(format!("FLUENT_{}:{}", key.to_uppercase(), text));
+            msgstr_forms.push(format!("{}{}:{}", FLUENT_MARKER_PREFIX, key.to_uppercase(), text));
         }
     }
     
     // PO requires at least 2 forms
     while msgstr_forms.len() < 2 {
-        msgstr_forms.push(format!("FLUENT_OTHER:{}", msgid_plural));
+        msgstr_forms.push(format!("{}:{}", FLUENT_OTHER_MARKER, msgid_plural));
     }
     
-    (msgid, msgid_plural, msgstr_forms)
+    msgstr_forms
 }
 
 fn extract_selector_from_comments(comments: &str) -> Option<String> {
-    // Look for the FLUENT_SELECTOR: marker in the comments
     for line in comments.lines() {
-        if let Some(selector_part) = line.trim().strip_prefix("FLUENT_SELECTOR:") {
+        if let Some(selector_part) = line.trim().strip_prefix(FLUENT_SELECTOR_PREFIX) {
             return Some(selector_part.trim().to_string());
         }
     }
@@ -429,7 +674,6 @@ fn extract_selector_from_comments(comments: &str) -> Option<String> {
 
 fn unescape_fluent_value(value: &str) -> String {
     // Reverse the escaping that was applied during Fluent->PO conversion
-    // Only unescape things that shouldn't be escaped in Fluent
     value
         .replace("\\{", "{")
         .replace("\\}", "}")
@@ -472,7 +716,7 @@ mod tests {
             messages: fluent_messages,
         };
         
-        let result = fluent_to_po_catalog(fluent_resource, "en");
+        let result = fluent_to_po_catalog(fluent_resource, "en", None);
         assert!(result.is_ok());
         
         let catalog = result.unwrap();
@@ -480,7 +724,7 @@ mod tests {
         
         // Check metadata
         assert_eq!(catalog.metadata.language, "en");
-        assert_eq!(catalog.metadata.content_type, "text/plain; charset=UTF-8");
+        assert_eq!(catalog.metadata.content_type, DEFAULT_CHARSET);
     }
 
     #[test]
@@ -518,7 +762,7 @@ mod tests {
             messages: fluent_messages,
         };
         
-        let result = fluent_to_po_catalog(fluent_resource, "en");
+        let result = fluent_to_po_catalog(fluent_resource, "en", None);
         assert!(result.is_ok());
         
         let catalog = result.unwrap();
@@ -707,7 +951,7 @@ mod tests {
         };
         
         // Convert to PO
-        let po_catalog = fluent_to_po_catalog(original_fluent, "en").unwrap();
+        let po_catalog = fluent_to_po_catalog(original_fluent, "en", None).unwrap();
         
         // Convert back to Fluent
         let converted_fluent = po_catalog_to_fluent(po_catalog).unwrap();
@@ -740,7 +984,7 @@ mod tests {
         };
         
         // Convert to PO
-        let po_catalog = fluent_to_po_catalog(original_fluent, "en").unwrap();
+        let po_catalog = fluent_to_po_catalog(original_fluent, "en", None).unwrap();
         
         // Convert back to Fluent
         let converted_fluent = po_catalog_to_fluent(po_catalog).unwrap();
@@ -757,7 +1001,7 @@ mod tests {
         // Create a catalog
         let mut metadata = CatalogMetadata::default();
         metadata.language = "en".to_string();
-        metadata.content_type = "text/plain; charset=UTF-8".to_string();
+        metadata.content_type = DEFAULT_CHARSET.to_string();
         
         let mut catalog = Catalog::new(metadata);
         
