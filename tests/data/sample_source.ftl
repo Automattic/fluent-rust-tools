@@ -45,4 +45,20 @@ email-template = Dear {$recipient_name},
     Best regards,
     {$company_name}
 
+# test empty key
+empty-key = ""
+
+block =
+    Sometimes it's more readable to format
+    multiline text as a "block", which means
+    starting it on a new line. All lines must
+    be indented by at least one space.
+
+leading-spaces =     This message's value starts with the word "This".
+leading-lines =
+
+
+    This message's value starts with the word "This".
+    The blank lines under the identifier are ignored.
+
 # Final comment at the end

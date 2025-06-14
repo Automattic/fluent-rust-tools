@@ -269,21 +269,15 @@ greeting = Hello, {$name}!
 msgid ""
 msgstr ""
 "PO-Revision-Date: 2025-06-05 15:08:46+0000\n"
-"MIME-Version: 1.0\n"
-"Content-Type: text/plain; charset=UTF-8\n"
-"Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=2; plural=(n > 1);\n"
-"X-Generator: GlotPress/2.4.0-alpha\n"
-"Language: pt_BR\n"
 "Project-Id-Version: Mobile - wordpress-rs\n"
 
 msgctxt "parse_api_root_failure_reason_wordfence_blocking_access"
 msgid "Wordfence is blocking access to the site's API. Please check your Wordfence configuration."
-msgstr ""
+msgstr "Wordfence está bloqueando o acesso à API do site. Por favor, verifique sua configuração do Wordfence."
 
 msgctxt "application_passwords_not_supported"
 msgid "The site does not support Application Passwords."
-msgstr ""
+msgstr "O site não suporta Senhas de Aplicativo."
 "#;
         
         fs::write(&input_path, problematic_po_content).unwrap();

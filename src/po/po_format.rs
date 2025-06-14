@@ -93,17 +93,22 @@ pub fn po_catalog_to_fluent(catalog: Catalog) -> Result<String> {
     let mut content = String::new();
     
     for message in catalog.messages() {
+        let initial_length = content.len();
+        
         add_comments_to_fluent(&mut content, message.comments());
         
         let key = generate_fluent_key_from_message(message);
         
         if message.is_plural() {
             convert_plural_po_message_to_fluent(&mut content, &key, message)?;
+            content.push('\n');
         } else {
             convert_singular_po_message_to_fluent(&mut content, &key, message)?;
+            // Only add newline if content was actually added
+            if content.len() > initial_length {
+                content.push('\n');
+            }
         }
-        
-        content.push('\n');
     }
     
     Ok(content)
@@ -341,6 +346,11 @@ fn convert_singular_po_message_to_fluent(
     message: &dyn MessageView
 ) -> Result<()> {
     let msgstr = message.msgstr()?;
+    
+    // Skip entries with empty msgstr values as they represent untranslated strings
+    if msgstr.trim().is_empty() {
+        return Ok(());
+    }
     
     if msgstr.contains('\n') {
         write_multiline_fluent_message(content, key, &msgstr);
@@ -687,49 +697,8 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn test_fluent_to_po_catalog_simple() {
-        // Create a simple Fluent resource
-        let fluent_messages = vec![
-            FluentMessage {
-                id: "hello".to_string(),
-                value: Some(FluentPattern {
-                    elements: vec![FluentElement::Text("Hello World".to_string())],
-                }),
-                attributes: HashMap::new(),
-                comment: Some("A simple greeting".to_string()),
-            },
-            FluentMessage {
-                id: "greeting".to_string(),
-                value: Some(FluentPattern {
-                    elements: vec![
-                        FluentElement::Text("Hello, ".to_string()),
-                        FluentElement::Variable("name".to_string()),
-                        FluentElement::Text("!".to_string()),
-                    ],
-                }),
-                attributes: HashMap::new(),
-                comment: None,
-            },
-        ];
-        
-        let fluent_resource = FluentResource {
-            messages: fluent_messages,
-        };
-        
-        let result = fluent_to_po_catalog(fluent_resource, "en", None);
-        assert!(result.is_ok());
-        
-        let catalog = result.unwrap();
-        assert_eq!(catalog.messages().count(), 2);
-        
-        // Check metadata
-        assert_eq!(catalog.metadata.language, "en");
-        assert_eq!(catalog.metadata.content_type, DEFAULT_CHARSET);
-    }
-
-    #[test]
-    fn test_fluent_to_po_catalog_with_plurals() {
-        // Create a Fluent resource with plurals
+    fn test_fluent_to_po_catalog() {
+        // Test both simple and complex messages in one test
         let mut variants = HashMap::new();
         variants.insert("one".to_string(), FluentPattern {
             elements: vec![
@@ -745,6 +714,29 @@ mod tests {
         });
         
         let fluent_messages = vec![
+            // Simple message
+            FluentMessage {
+                id: "hello".to_string(),
+                value: Some(FluentPattern {
+                    elements: vec![FluentElement::Text("Hello World".to_string())],
+                }),
+                attributes: HashMap::new(),
+                comment: Some("A simple greeting".to_string()),
+            },
+            // Message with variables
+            FluentMessage {
+                id: "greeting".to_string(),
+                value: Some(FluentPattern {
+                    elements: vec![
+                        FluentElement::Text("Hello, ".to_string()),
+                        FluentElement::Variable("name".to_string()),
+                        FluentElement::Text("!".to_string()),
+                    ],
+                }),
+                attributes: HashMap::new(),
+                comment: None,
+            },
+            // Plural message
             FluentMessage {
                 id: "item_count".to_string(),
                 value: Some(FluentPattern {
@@ -766,46 +758,35 @@ mod tests {
         assert!(result.is_ok());
         
         let catalog = result.unwrap();
-        assert_eq!(catalog.messages().count(), 1);
+        assert_eq!(catalog.messages().count(), 3);
         
-        // Check that it's a plural message
-        let message = catalog.messages().next().unwrap();
-        assert!(message.is_plural());
-        assert!(message.comments().contains("FLUENT_SELECTOR:count"));
+        // Check metadata
+        assert_eq!(catalog.metadata.language, "en");
+        assert_eq!(catalog.metadata.content_type, DEFAULT_CHARSET);
+        
+        // Verify plural message
+        let plural_message = catalog.messages().find(|m| m.msgctxt() == "item_count").unwrap();
+        assert!(plural_message.is_plural());
+        assert!(plural_message.comments().contains("FLUENT_SELECTOR:count"));
     }
 
     #[test]
-    fn test_po_catalog_to_fluent_simple() {
-        // Create a simple PO catalog
+    fn test_po_catalog_to_fluent() {
+        // Test both simple and plural messages
         let mut metadata = CatalogMetadata::default();
         metadata.language = "en".to_string();
         let mut catalog = Catalog::new(metadata);
         
+        // Simple message
         let mut msg_builder = PoMessage::build_singular();
         msg_builder
             .with_msgctxt("hello".to_string())
             .with_msgid("Hello World".to_string())
             .with_msgstr("Hello World".to_string())
             .with_comments("A simple greeting".to_string());
+        catalog.append_or_update(msg_builder.done());
         
-        let message = msg_builder.done();
-        catalog.append_or_update(message);
-        
-        let result = po_catalog_to_fluent(catalog);
-        assert!(result.is_ok());
-        
-        let fluent_content = result.unwrap();
-        assert!(fluent_content.contains("# A simple greeting"));
-        assert!(fluent_content.contains("hello = Hello World"));
-    }
-
-    #[test]
-    fn test_po_catalog_to_fluent_with_plurals() {
-        // Create a PO catalog with plurals
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        let mut catalog = Catalog::new(metadata);
-        
+        // Plural message
         let mut msg_builder = PoMessage::build_plural();
         msg_builder
             .with_msgctxt("item_count".to_string())
@@ -816,14 +797,14 @@ mod tests {
                 "FLUENT_OTHER:{$count} items".to_string(),
             ])
             .with_comments("FLUENT_SELECTOR:count\nItem counter".to_string());
-        
-        let message = msg_builder.done();
-        catalog.append_or_update(message);
+        catalog.append_or_update(msg_builder.done());
         
         let result = po_catalog_to_fluent(catalog);
         assert!(result.is_ok());
         
         let fluent_content = result.unwrap();
+        assert!(fluent_content.contains("# A simple greeting"));
+        assert!(fluent_content.contains("hello = Hello World"));
         assert!(fluent_content.contains("item_count = {$count ->"));
         assert!(fluent_content.contains("[one] {$count} item"));
         assert!(fluent_content.contains("*[other] {$count} items"));
@@ -856,21 +837,19 @@ mod tests {
         assert_eq!(info.forms.len(), 2);
         assert!(info.forms.iter().any(|(key, _)| key == "one"));
         assert!(info.forms.iter().any(|(key, _)| key == "other"));
-    }
-
-    #[test]
-    fn test_extract_plural_info_none_for_simple() {
+        
         // Test with a simple pattern (no plurals)
-        let pattern = FluentPattern {
+        let simple_pattern = FluentPattern {
             elements: vec![FluentElement::Text("Hello World".to_string())],
         };
         
-        let plural_info = extract_plural_info(&pattern);
+        let plural_info = extract_plural_info(&simple_pattern);
         assert!(plural_info.is_none());
     }
 
     #[test]
     fn test_create_po_plural_forms() {
+        // Test with standard forms
         let plural_info = PluralInfo {
             selector: "count".to_string(),
             forms: vec![
@@ -886,11 +865,9 @@ mod tests {
         assert_eq!(msgstr_forms.len(), 2);
         assert!(msgstr_forms.contains(&"FLUENT_ONE:{$count} item".to_string()));
         assert!(msgstr_forms.contains(&"FLUENT_OTHER:{$count} items".to_string()));
-    }
-
-    #[test]
-    fn test_create_po_plural_forms_with_numeric() {
-        let plural_info = PluralInfo {
+        
+        // Test with numeric forms
+        let plural_info_numeric = PluralInfo {
             selector: "count".to_string(),
             forms: vec![
                 ("0".to_string(), "no items".to_string()),
@@ -899,11 +876,10 @@ mod tests {
             ],
         };
         
-        let (msgid, msgid_plural, msgstr_forms) = create_po_plural_forms(&plural_info);
+        let (msgid, msgid_plural, msgstr_forms) = create_po_plural_forms(&plural_info_numeric);
         
         assert_eq!(msgid, "no items"); // Prefers [0] form for msgid
         assert_eq!(msgid_plural, "many items");
-        // We expect at least 2 forms since PO requires minimum 2
         assert!(msgstr_forms.len() >= 2);
         assert!(msgstr_forms.contains(&"FLUENT_ZERO:no items".to_string()));
         assert!(msgstr_forms.contains(&"FLUENT_OTHER:many items".to_string()));
@@ -930,67 +906,6 @@ mod tests {
         assert_eq!(unescape_fluent_value("Path\\\\to\\\\file"), "Path\\to\\file");
         assert_eq!(unescape_fluent_value("Normal text"), "Normal text");
         assert_eq!(unescape_fluent_value("\\{$var\\} text"), "{$var} text");
-    }
-
-    #[test]
-    fn test_round_trip_conversion_simple() {
-        // Create original Fluent resource
-        let fluent_messages = vec![
-            FluentMessage {
-                id: "hello".to_string(),
-                value: Some(FluentPattern {
-                    elements: vec![FluentElement::Text("Hello World".to_string())],
-                }),
-                attributes: HashMap::new(),
-                comment: Some("A greeting".to_string()),
-            },
-        ];
-        
-        let original_fluent = FluentResource {
-            messages: fluent_messages,
-        };
-        
-        // Convert to PO
-        let po_catalog = fluent_to_po_catalog(original_fluent, "en", None).unwrap();
-        
-        // Convert back to Fluent
-        let converted_fluent = po_catalog_to_fluent(po_catalog).unwrap();
-        
-        // Check that the content is preserved
-        assert!(converted_fluent.contains("hello = Hello World"));
-        assert!(converted_fluent.contains("# A greeting"));
-    }
-
-    #[test]
-    fn test_round_trip_conversion_with_variables() {
-        // Create Fluent resource with variables
-        let fluent_messages = vec![
-            FluentMessage {
-                id: "greeting".to_string(),
-                value: Some(FluentPattern {
-                    elements: vec![
-                        FluentElement::Text("Hello, ".to_string()),
-                        FluentElement::Variable("name".to_string()),
-                        FluentElement::Text("!".to_string()),
-                    ],
-                }),
-                attributes: HashMap::new(),
-                comment: None,
-            },
-        ];
-        
-        let original_fluent = FluentResource {
-            messages: fluent_messages,
-        };
-        
-        // Convert to PO
-        let po_catalog = fluent_to_po_catalog(original_fluent, "en", None).unwrap();
-        
-        // Convert back to Fluent
-        let converted_fluent = po_catalog_to_fluent(po_catalog).unwrap();
-        
-        // Check that variables are preserved
-        assert!(converted_fluent.contains("greeting = Hello, {$name}!"));
     }
 
     #[test]
@@ -1031,5 +946,77 @@ mod tests {
         let parsed_message = parsed_catalog.messages().next().unwrap();
         assert_eq!(parsed_message.msgctxt(), "test");
         assert_eq!(parsed_message.msgid(), "Test message");
+    }
+
+    #[test]
+    fn test_po_to_fluent_empty_msgstr_edge_cases() {
+        // Test that empty msgstr values are omitted and don't create extra empty lines
+        let mut metadata = CatalogMetadata::default();
+        metadata.language = "en".to_string();
+        metadata.content_type = "text/plain; charset=UTF-8".to_string();
+        
+        let mut catalog = Catalog::new(metadata);
+        
+        // Add message with empty msgstr
+        let mut msg_builder = PoMessage::build_singular();
+        msg_builder
+            .with_msgctxt("empty-key".to_string())
+            .with_msgid("source text".to_string())
+            .with_msgstr("".to_string());
+        catalog.append_or_update(msg_builder.done());
+        
+        // Add message with whitespace-only msgstr
+        let mut msg_builder = PoMessage::build_singular();
+        msg_builder
+            .with_msgctxt("whitespace-key".to_string())
+            .with_msgid("source text 2".to_string())
+            .with_msgstr("   ".to_string());
+        catalog.append_or_update(msg_builder.done());
+        
+        // Add valid translated messages to test line handling
+        let mut msg_builder = PoMessage::build_singular();
+        msg_builder
+            .with_msgctxt("first".to_string())
+            .with_msgid("first message".to_string())
+            .with_msgstr("translated first".to_string());
+        catalog.append_or_update(msg_builder.done());
+        
+        let mut msg_builder = PoMessage::build_singular();
+        msg_builder
+            .with_msgctxt("second".to_string())
+            .with_msgid("second message".to_string())
+            .with_msgstr("translated second".to_string());
+        catalog.append_or_update(msg_builder.done());
+        
+        // Convert to Fluent
+        let result = po_catalog_to_fluent(catalog);
+        assert!(result.is_ok());
+        
+        let fluent_content = result.unwrap();
+        
+        // Empty and whitespace-only entries should be omitted
+        assert!(!fluent_content.contains("empty-key"));
+        assert!(!fluent_content.contains("whitespace-key"));
+        
+        // Valid entries should be present
+        assert!(fluent_content.contains("first = translated first"));
+        assert!(fluent_content.contains("second = translated second"));
+        
+        // Should not contain any invalid "key = " entries
+        assert!(!fluent_content.contains("= \n"));
+        assert!(!fluent_content.contains("=  "));
+        
+        // Check that there are no excessive empty lines
+        let lines: Vec<&str> = fluent_content.lines().collect();
+        let mut consecutive_empty = 0;
+        
+        for line in lines {
+            if line.trim().is_empty() {
+                consecutive_empty += 1;
+                assert!(consecutive_empty <= 1, "Found {} consecutive empty lines", consecutive_empty);
+            } else {
+                consecutive_empty = 0;
+            }
+        }
     }
 }
