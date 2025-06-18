@@ -470,20 +470,24 @@ fn determine_variable_name(
 }
 
 fn escape_android_string(text: &str) -> String {
+    // For Android XML, we only need to escape actual control characters
+    // Quotes and apostrophes will be handled by the XML writer
     text.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\'', "\\'")
         .replace('\n', "\\n")
         .replace('\t', "\\t")
 }
 
 fn unescape_android_string(text: &str) -> String {
     text.replace("\\\\", "\\")
-        .replace("\\\"", "\"")
-        .replace("\\'", "'")
         .replace("\\n", "\n")
         .replace("\\t", "\t")
         .replace("\\u0024", "$") // Handle unicode escapes like \u0024 for $
+        // Handle HTML entities that might appear in Android XML
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&") // This should be last to avoid double-unescaping
 }
 
 /// Map Fluent quantity keys to Android XML quantity names
@@ -580,7 +584,7 @@ greeting = Hello, {$name}!
 
         let final_content = fs::read_to_string(&final_ftl_path).unwrap();
         assert!(final_content.contains("hello = Hello World"));
-        assert!(final_content.contains("greeting = Hello, {$name}!"));
+        assert!(final_content.contains("greeting = Hello, { $name }!")); // Built-in serializer normalizes formatting
     }
 
     #[test]
@@ -606,9 +610,11 @@ item_count = {$count ->
         assert!(android_to_fluent_with_original(&xml_path, &final_ftl_path, &original_ftl_path).is_ok());
 
         let final_content = fs::read_to_string(final_ftl_path).unwrap();
-        assert!(final_content.contains("item_count = {$count ->"));
-        assert!(final_content.contains("[one] {$count} item"));
-        assert!(final_content.contains("*[other] {$count} items"));
+        // Built-in serializer uses multiline formatting for plurals
+        assert!(final_content.contains("item_count ="));
+        assert!(final_content.contains("{ $count ->"));
+        assert!(final_content.contains("[one] { $count } item"));
+        assert!(final_content.contains("*[other] { $count } items"));
     }
     
     #[test]
@@ -640,18 +646,20 @@ item_count = {$count ->
 
     #[test]
     fn test_escape_android_string() {
-        assert_eq!(escape_android_string("Hello \"World\""), r#"Hello \"World\""#);
+        // Quotes and apostrophes are no longer escaped - XML writer handles them
+        assert_eq!(escape_android_string("Hello \"World\""), "Hello \"World\"");
         assert_eq!(escape_android_string("Line1\nLine2"), "Line1\\nLine2");
         assert_eq!(escape_android_string("Tab\tHere"), "Tab\\tHere");
-        assert_eq!(escape_android_string("Don't"), "Don\\'t");
+        assert_eq!(escape_android_string("Don't"), "Don't");
     }
 
     #[test]
     fn test_unescape_android_string() {
-        assert_eq!(unescape_android_string(r#"Hello \"World\""#), "Hello \"World\"");
+        // Test HTML entity unescaping (main case now)
+        assert_eq!(unescape_android_string("Hello &quot;World&quot;"), "Hello \"World\"");
         assert_eq!(unescape_android_string("Line1\\nLine2"), "Line1\nLine2");
         assert_eq!(unescape_android_string("Tab\\tHere"), "Tab\tHere");
-        assert_eq!(unescape_android_string("Don\\'t"), "Don't");
+        assert_eq!(unescape_android_string("Don&apos;t"), "Don't");
         assert_eq!(unescape_android_string("\\u0024100"), "$100");
     }
 
