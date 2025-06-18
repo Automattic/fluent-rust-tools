@@ -456,17 +456,19 @@ goodbye = Goodbye!"#;
         
         assert_eq!(resource.messages.len(), 2);
         
-        // Check first message comment
+        // Check first message comment - assert exact content to ensure no extra characters or indentation
         assert!(resource.messages[0].comment.is_some());
         let hello_comment = resource.messages[0].comment.as_ref().unwrap();
-        assert!(hello_comment.contains("This is a greeting message"));
-        assert!(hello_comment.contains("It supports internationalization"));
-        assert!(hello_comment.contains("and has multiple lines of comments"));
+        let expected_hello_comment = "This is a greeting message\nIt supports internationalization\nand has multiple lines of comments";
+        assert_eq!(hello_comment, expected_hello_comment,
+                   "Comment should contain exact content without # characters or extra indentation");
         
-        // Check second message comment
+        // Check second message comment - assert exact content
         assert!(resource.messages[1].comment.is_some());
         let goodbye_comment = resource.messages[1].comment.as_ref().unwrap();
-        assert_eq!(goodbye_comment, "Another comment\nfor a different message");
+        let expected_goodbye_comment = "Another comment\nfor a different message";
+        assert_eq!(goodbye_comment, expected_goodbye_comment,
+                   "Comment should contain exact content without # characters or extra indentation");
     }
 
     #[test]

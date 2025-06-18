@@ -67,10 +67,28 @@ greeting = Hello, {$name}!
         // Verify PO file was created
         assert!(output_path.exists());
         let po_content = fs::read_to_string(&output_path).unwrap();
-        assert!(po_content.contains("msgid \"Hello World\""));
-        assert!(po_content.contains("msgctxt \"hello\""));
-        assert!(po_content.contains("msgid \"Hello, {$name}!\""));
-        assert!(po_content.contains("msgctxt \"greeting\""));
+        
+        // Verify we have the expected metadata header structure
+        assert!(po_content.contains("Project-Id-Version:"),
+                "PO file should contain required metadata headers");
+        assert!(po_content.contains("Content-Type: text/plain; charset=UTF-8"),
+                "PO file should contain proper content type header");
+
+        // Verify complete PO entry blocks with proper pairing of msgctxt, msgid, and msgstr
+        
+        // Check for "hello" entry block
+        let hello_block = r#"msgctxt "hello"
+msgid "Hello World"
+msgstr "Hello World""#;
+        assert!(po_content.contains(hello_block), 
+                "PO content should contain complete 'hello' entry block with properly paired msgctxt, msgid, and msgstr");
+        
+        // Check for "greeting" entry block  
+        let greeting_block = r#"msgctxt "greeting"
+msgid "Hello, {$name}!"
+msgstr "Hello, {$name}!""#;
+        assert!(po_content.contains(greeting_block),
+                "PO content should contain complete 'greeting' entry block with properly paired msgctxt, msgid, and msgstr");
     }
 
     #[test]
@@ -94,8 +112,21 @@ greeting = Hello, {$name}!
         // Verify PO file was created with plural forms
         assert!(output_path.exists());
         let po_content = fs::read_to_string(&output_path).unwrap();
-        assert!(po_content.contains("msgid_plural"));
-        assert!(po_content.contains("FLUENT_SELECTOR:num"));
+
+        // Verify header metadata contains plural forms information
+        assert!(po_content.contains("Plural-Forms:"),
+                "Should contain Plural-Forms header for proper plural handling");
+
+        // Verify complete plural entry block with proper structure
+        let plural_block = r#"#. FLUENT_SELECTOR:num
+msgctxt "count"
+msgid "{$num} item"
+msgid_plural "{$num} items"
+msgstr[0] "FLUENT_ONE:{$num} item"
+msgstr[1] "FLUENT_OTHER:{$num} items""#;
+        assert!(po_content.contains(plural_block),
+                "PO content should contain complete plural entry block with properly formatted FLUENT_SELECTOR comment, msgctxt, msgid, msgid_plural, and msgstr entries");
+        
     }
 
     #[test]
@@ -228,10 +259,23 @@ greeting = Hello, {$name}!
         let result = fluent_to_po(&input_path, &output_path, "en", None);
         assert!(result.is_ok());
         
-        // Verify PO file contains comments
+        // Verify PO file contains comments with proper format
         let po_content = fs::read_to_string(&output_path).unwrap();
-        assert!(po_content.contains("This is a greeting message"));
-        assert!(po_content.contains("Welcome message for users"));
+        
+        // Verify complete comment blocks with proper PO extracted comment format (#.)
+        let hello_comment_block = r#"#. This is a greeting message
+msgctxt "hello"
+msgid "Hello World"
+msgstr "Hello World""#;
+        assert!(po_content.contains(hello_comment_block),
+                "Should contain complete 'hello' entry with properly formatted extracted comment using '#.' prefix");
+        
+        let greeting_comment_block = r#"#. Welcome message for users
+msgctxt "greeting"
+msgid "Hello, {$name}!"
+msgstr "Hello, {$name}!""#;
+        assert!(po_content.contains(greeting_comment_block),
+                "Should contain complete 'greeting' entry with properly formatted extracted comment using '#.' prefix");
     }
 
     #[test]
