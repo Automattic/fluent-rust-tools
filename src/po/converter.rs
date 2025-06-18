@@ -321,6 +321,106 @@ msgstr "Hello, {$name}!""#;
     }
 
     #[test]
+    fn test_fluent_to_po_unclosed_select_expression() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("unclosed_select.ftl");
+        let output_path = temp_dir.path().join("output.po");
+        
+        // Test specific error: unclosed select expression
+        let content = r#"hello = Hello World
+bad_plural = {$count ->
+    [one] item
+    # Missing closing brace
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
+        assert!(result.is_err(), "Should fail on unclosed select expression");
+    }
+
+    #[test]
+    fn test_fluent_to_po_mismatched_braces() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("mismatched_braces.ftl");
+        let output_path = temp_dir.path().join("output.po");
+        
+        // Test specific error: mismatched braces (opening { but closing with ])
+        let content = r#"hello = Hello World
+greeting = Hello, {$name]!
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
+        assert!(result.is_err(), "Should fail on mismatched braces");
+    }
+
+    #[test]
+    fn test_fluent_to_po_invalid_key_syntax() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("invalid_key.ftl");
+        let output_path = temp_dir.path().join("output.po");
+        
+        // Test specific error: invalid attribute syntax (missing dot before attribute)
+        let content = r#"button = Click me
+Button for clicking
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
+        assert!(result.is_err(), "Should fail on invalid attribute syntax");
+    }
+
+    #[test]
+    fn test_po_to_fluent_completely_invalid_structure() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("invalid_structure.po");
+        let output_path = temp_dir.path().join("output.ftl");
+        
+        // Test specific error: binary/non-text file content that should fail parsing
+        let content = b"\x00\x01\x02\xFF\xFE\x80\x90Binary data that is not valid text\x00\x00";
+        fs::write(&input_path, content).unwrap();
+        
+        let result = po_to_fluent(&input_path, &output_path);
+        assert!(result.is_err(), "Should fail on binary/invalid file content");
+    }
+
+    #[test]
+    fn test_po_to_fluent_invalid_escape_sequence() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("invalid_escape.po");
+        let output_path = temp_dir.path().join("output.ftl");
+        
+        // Test specific error: invalid escape sequence
+        let content = r#"msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgctxt "greeting"  
+msgid "Hello, \z invalid escape!"
+msgstr "Hello, world!"
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = po_to_fluent(&input_path, &output_path);
+        assert!(result.is_err(), "Should fail on invalid escape sequence");
+    }
+
+    #[test]
+    fn test_po_to_fluent_malformed_msgid_syntax() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("malformed_msgid.po");
+        let output_path = temp_dir.path().join("output.ftl");
+        
+        // Test specific malformed PO content: broken msgid structure (missing quotes)
+        // This causes polib to fail during metadata parsing
+        let content = "msgid\nmsgstr \"test\"";
+        fs::write(&input_path, content).unwrap();
+        
+        let result = po_to_fluent(&input_path, &output_path);
+        assert!(result.is_err(), "Should fail on broken msgid structure");
+    }
+
+    #[test]
     fn test_po_with_missing_metadata_headers() {
         // Test conversion of PO files with missing required metadata headers
         let temp_dir = tempdir().unwrap();
