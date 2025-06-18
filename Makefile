@@ -29,9 +29,9 @@ test: unit-test cli-test
 	@echo "🎉 All tests passed! The CLI tool is working correctly."
 	@echo ""
 	@echo "📄 Usage examples:"
-	@echo "   Convert Fluent to Android XML: ./target/release/fluent-tools android to-xml -i input.ftl -o output.xml"
+	@echo "   Convert Fluent to Android XML: ./target/release/fluent-tools android from-fluent -i input.ftl -o output.xml"
 	@echo "   Convert Android XML to Fluent: ./target/release/fluent-tools android to-fluent -i input.xml -o output.ftl"
-	@echo "   Convert Fluent to PO: ./target/release/fluent-tools po to-po -i input.ftl -o output.po"
+	@echo "   Convert Fluent to PO: ./target/release/fluent-tools po from-fluent -i input.ftl -o output.po"
 	@echo "   Convert PO to Fluent: ./target/release/fluent-tools po to-fluent -i input.po -o output.ftl"
 
 # Run unit tests
@@ -46,7 +46,7 @@ cli-test: build
 	# Android XML round trip test
 	@echo "🤖 Testing Android XML conversion..."
 	@echo "🔄 Step 1: Converting Fluent to Android XML..."
-	$(rust_docker_run) ./target/release/fluent-tools android to-xml -i tests/data/sample_source.ftl -o test_android_output.xml
+	$(rust_docker_run) ./target/release/fluent-tools android from-fluent -i tests/data/sample_source.ftl -o test_android_output.xml
 	
 	@echo "🔄 Step 2: Converting Android XML back to Fluent..."
 	$(rust_docker_run) ./target/release/fluent-tools android to-fluent -i test_android_output.xml -o test_android_roundtrip.ftl --original-fluent tests/data/sample_source.ftl
@@ -97,7 +97,7 @@ cli-test: build
 	# PO format round trip test
 	@echo "📝 Testing PO format conversion..."
 	@echo "🔄 Step 6: Converting Fluent to PO..."
-	$(rust_docker_run) ./target/release/fluent-tools po to-po -i tests/data/sample_source.ftl -o test_po_output.po
+	$(rust_docker_run) ./target/release/fluent-tools po from-fluent -i tests/data/sample_source.ftl -o test_po_output.po
 	
 	@echo "🔄 Step 7: Converting PO back to Fluent..."
 	$(rust_docker_run) ./target/release/fluent-tools po to-fluent -i test_po_output.po -o test_po_roundtrip.ftl

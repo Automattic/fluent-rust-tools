@@ -5,14 +5,14 @@ require 'thor'
 module FluentTools
   # CLI commands for Android XML conversion
   class AndroidCLI < Thor
-    desc 'to_xml INPUT OUTPUT', 'Convert Fluent file to Android XML strings'
+    desc 'from_fluent INPUT OUTPUT', 'Convert Fluent file to Android XML strings'
     long_desc <<~DESC
       Convert a Fluent localization file to Android XML string resources.
 
       INPUT: Path to the input Fluent (.ftl) file
       OUTPUT: Path to the output Android XML file
     DESC
-    def to_xml(input, output)
+    def from_fluent(input, output)
       converter = Converter.new
       converter.fluent_to_android(input, output)
       puts "Successfully converted #{input} to #{output}"
@@ -44,7 +44,7 @@ module FluentTools
 
   # CLI commands for PO (GNU gettext) conversion
   class PoCLI < Thor
-    desc 'to_po INPUT OUTPUT', 'Convert Fluent file to PO format'
+    desc 'from_fluent INPUT OUTPUT', 'Convert Fluent file to PO format'
     long_desc <<~DESC
       Convert a Fluent localization file to GNU gettext PO format.
 
@@ -52,7 +52,7 @@ module FluentTools
       OUTPUT: Path to the output PO file
     DESC
     option :locale, aliases: '-l', default: 'en-US', desc: 'Source locale (e.g., en-US)'
-    def to_po(input, output)
+    def from_fluent(input, output)
       converter = Converter.new
       converter.fluent_to_po(input, output, locale: options[:locale])
       puts "Successfully converted #{input} to #{output}"

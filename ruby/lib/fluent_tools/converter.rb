@@ -17,7 +17,7 @@ module FluentTools
       validate_input_file(input_path)
       ensure_output_directory(output_path)
 
-      cmd = [@binary_path, 'android', 'to-xml', '-i', input_path, '-o', output_path]
+      cmd = [@binary_path, 'android', 'from-fluent', '-i', input_path, '-o', output_path]
       execute_command(cmd)
     end
 
@@ -37,7 +37,7 @@ module FluentTools
       validate_input_file(input_path)
       ensure_output_directory(output_path)
 
-      cmd = [@binary_path, 'po', 'to-po', '-i', input_path, '-o', output_path, '-l', locale]
+      cmd = [@binary_path, 'po', 'from-fluent', '-i', input_path, '-o', output_path, '-l', locale]
       execute_command(cmd)
     end
 
