@@ -175,11 +175,20 @@ msgstr "Hello, {$name}!"
         let po_file = temp_dir.path().join("intermediate.po");
         let converted_ftl = temp_dir.path().join("converted.ftl");
         
-        // Original Fluent content
+        // Original Fluent content with various complex cases including multiline values
         let original_content = r#"hello = Hello World
 greeting = Hello, {$name}!
 # This is a comment
 farewell = Goodbye, {$name}!
+# Multiline message for testing round-trip preservation
+description = This is the first line of a longer description.
+    This is the second line with proper indentation.
+    And this is the third line that should be preserved.
+# Another multiline with variables
+# and multiline comments
+instructions = Step 1: Click the {$button} button
+    Step 2: Enter your {$username} in the field
+    Step 3: Save your changes
 "#;
         fs::write(&original_ftl, original_content).unwrap();
         
@@ -194,10 +203,30 @@ farewell = Goodbye, {$name}!
         // Read the converted content
         let converted_content = fs::read_to_string(&converted_ftl).unwrap();
         
-        // Check that key messages are preserved
+        // Check that all messages are preserved, including multiline formatting
         assert!(converted_content.contains("hello = Hello World"));
         assert!(converted_content.contains("greeting = Hello, {$name}!"));
-        assert!(converted_content.contains("farewell = Goodbye, {$name}!"));
+        assert!(converted_content.contains(
+            r#"# This is a comment
+farewell = Goodbye, {$name}!"#
+        ));
+        
+        // Verify multiline content is preserved with proper indentation
+        assert!(converted_content.contains(
+            r#"# Multiline message for testing round-trip preservation
+description = This is the first line of a longer description.
+    This is the second line with proper indentation.
+    And this is the third line that should be preserved."#
+        ));
+        
+        // Verify multiline content with variables is preserved
+        assert!(converted_content.contains(
+            r#"# Another multiline with variables
+# and multiline comments
+instructions = Step 1: Click the {$button} button
+    Step 2: Enter your {$username} in the field
+    Step 3: Save your changes"#
+        ));
     }
 
     #[test]
