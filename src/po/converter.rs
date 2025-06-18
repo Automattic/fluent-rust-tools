@@ -135,37 +135,28 @@ msgstr[1] "FLUENT_OTHER:{$num} items""#;
         let input_path = temp_dir.path().join("input.po");
         let output_path = temp_dir.path().join("output.ftl");
 
-        use polib::catalog::Catalog;
-        use polib::metadata::CatalogMetadata;
-        use polib::message::Message as PoMessage;
-        use crate::po::po_format::write_po_file;
+        // Create a simple PO file with hardcoded content
+        let po_content = r#"msgid ""
+msgstr ""
+"Project-Id-Version: test 1.0\n"
+"POT-Creation-Date: 2025-01-01 12:00+0000\n"
+"PO-Revision-Date: 2025-01-01 12:00+0000\n"
+"Last-Translator: Test\n"
+"Language-Team: English\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
 
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = "text/plain; charset=UTF-8".to_string();
-        
-        let mut catalog = Catalog::new(metadata);
-        
-        // Add hello message
-        let mut msg_builder = PoMessage::build_singular();
-        msg_builder
-            .with_msgctxt("hello".to_string())
-            .with_msgid("Hello World".to_string())
-            .with_msgstr("Hello World".to_string());
-        let message = msg_builder.done();
-        catalog.append_or_update(message);
-        
-        // Add greeting message
-        let mut msg_builder = PoMessage::build_singular();
-        msg_builder
-            .with_msgctxt("greeting".to_string())
-            .with_msgid("Hello, {$name}!".to_string())
-            .with_msgstr("Hello, {$name}!".to_string());
-        let message = msg_builder.done();
-        catalog.append_or_update(message);
-        
-        // Write the catalog to file
-        write_po_file(&catalog, &input_path).unwrap();
+msgctxt "hello"
+msgid "Hello World"
+msgstr "Hello World"
+
+msgctxt "greeting"
+msgid "Hello, {$name}!"
+msgstr "Hello, {$name}!"
+"#;
+        fs::write(&input_path, po_content).unwrap();
         
         // Convert to Fluent
         let result = po_to_fluent(&input_path, &output_path);
