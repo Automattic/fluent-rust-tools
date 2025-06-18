@@ -33,7 +33,7 @@ gem install fluent-tools-*.gem
 
 ```bash
 # Convert Fluent to Android XML
-fluent-tools android to-xml -i input.ftl -o output.xml
+fluent-tools android from-fluent -i input.ftl -o output.xml
 
 # Convert Android XML to Fluent
 fluent-tools android to-fluent -i input.xml -o output.ftl
@@ -46,7 +46,7 @@ fluent-tools android to-fluent -i input.xml -o output.ftl --original-fluent orig
 
 ```bash
 # Convert Fluent to PO format
-fluent-tools po to-po -i input.ftl -o output.po -l en-US
+fluent-tools po from-fluent -i input.ftl -o output.po -l en-US
 
 # Convert PO to Fluent format
 fluent-tools po to-fluent -i input.po -o output.ftl

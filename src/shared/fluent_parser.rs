@@ -4,7 +4,6 @@ use fluent_syntax::parser::parse;
 use std::collections::HashMap;
 
 // Constants for better maintainability
-const MAX_COMMENT_DISTANCE: usize = 1;
 const FLUENT_INDENTATION: &str = "    ";
 const UNSUPPORTED_PLACEHOLDER: &str = "{unsupported}";
 const PLURAL_VARIANT_ORDER: &[&str] = &["zero", "one", "two", "few", "many"];
@@ -44,9 +43,8 @@ impl FluentResource {
     /// Uses the fluent-syntax parser's built-in comment handling
     pub fn from_source(source: &str) -> Result<Self> {
         let resource = Self::parse_with_error_handling(source)?;
-        let source_lines: Vec<&str> = source.lines().collect();
         
-        let mut parser = FluentResourceParser::new(&source_lines);
+        let mut parser = FluentResourceParser::new();
         parser.process_entries(resource.body)?;
         
         Ok(FluentResource { 
@@ -115,18 +113,14 @@ impl FluentResource {
 }
 
 /// Internal parser state for processing Fluent AST entries
-struct FluentResourceParser<'a> {
-    source_lines: &'a [&'a str],
+struct FluentResourceParser {
     messages: Vec<FluentMessage>,
-    pending_comments: Vec<(String, usize)>,
 }
 
-impl<'a> FluentResourceParser<'a> {
-    fn new(source_lines: &'a [&'a str]) -> Self {
+impl FluentResourceParser {
+    fn new() -> Self {
         Self {
-            source_lines,
             messages: Vec::new(),
-            pending_comments: Vec::new(),
         }
     }
 
@@ -134,7 +128,9 @@ impl<'a> FluentResourceParser<'a> {
         for entry in entries {
             match entry {
                 Entry::Message(message) => self.process_message(message),
-                Entry::Comment(comment) => self.process_standalone_comment(comment),
+                Entry::Comment(_) => {
+                    // Standalone comments are ignored - only use parser's built-in comment association
+                }
                 Entry::GroupComment(_) | Entry::ResourceComment(_) => {
                     // Ignore group and resource comments for now
                 }
@@ -142,7 +138,7 @@ impl<'a> FluentResourceParser<'a> {
                     // Handle terms if needed in the future
                 }
                 Entry::Junk { .. } => {
-                    self.pending_comments.clear();
+                    // Ignore junk entries
                 }
             }
         }
@@ -152,7 +148,8 @@ impl<'a> FluentResourceParser<'a> {
     fn process_message(&mut self, message: fluent_syntax::ast::Message<&str>) {
         let message_id = message.id.name.to_string();
         
-        let comment = self.resolve_message_comment(&message, &message_id);
+        // Only use comments directly associated with the message by the fluent-syntax parser
+        let comment = message.comment.map(|msg_comment| msg_comment.content.join("\n"));
         
         let fluent_message = FluentMessage {
             id: message_id,
@@ -164,25 +161,6 @@ impl<'a> FluentResourceParser<'a> {
         self.messages.push(fluent_message);
     }
 
-    fn process_standalone_comment(&mut self, comment: fluent_syntax::ast::Comment<&str>) {
-        let comment_text = comment.content.join("\n");
-        let approx_line = find_comment_line(&comment_text, self.source_lines);
-        self.pending_comments.push((comment_text, approx_line));
-    }
-
-    fn resolve_message_comment(
-        &mut self, 
-        message: &fluent_syntax::ast::Message<&str>, 
-        message_id: &str
-    ) -> Option<String> {
-        // Priority: 1) message's own comment, 2) pending standalone comment (if close enough)
-        if let Some(msg_comment) = &message.comment {
-            Some(msg_comment.content.join("\n"))
-        } else {
-            find_and_consume_nearby_comment(&mut self.pending_comments, message_id, self.source_lines)
-        }
-    }
-
     fn convert_attributes(
         &self, 
         attributes: Vec<fluent_syntax::ast::Attribute<&str>>
@@ -192,66 +170,6 @@ impl<'a> FluentResourceParser<'a> {
             .map(|attr| (attr.id.name.to_string(), convert_pattern(&attr.value)))
             .collect()
     }
-}
-
-/// Helper function to find and consume a nearby comment for a message
-fn find_and_consume_nearby_comment(
-    pending_comments: &mut Vec<(String, usize)>,
-    message_id: &str,
-    source_lines: &[&str],
-) -> Option<String> {
-    let message_line = find_message_line(message_id, source_lines)?;
-    let best_match = find_best_comment_match(pending_comments, message_line, source_lines)?;
-    
-    let (index, comment) = best_match;
-    pending_comments.remove(index);
-    Some(comment)
-}
-
-fn find_message_line(message_id: &str, source_lines: &[&str]) -> Option<usize> {
-    source_lines
-        .iter()
-        .position(|line| line.trim_start().starts_with(&format!("{} =", message_id)))
-}
-
-fn find_best_comment_match(
-    pending_comments: &[(String, usize)],
-    message_line: usize,
-    source_lines: &[&str],
-) -> Option<(usize, String)> {
-    let mut best_match: Option<(usize, String)> = None;
-    
-    for (i, (comment_text, comment_line)) in pending_comments.iter().enumerate() {
-        if *comment_line < message_line {
-            let empty_lines_between = count_empty_lines_between(*comment_line, message_line, source_lines);
-            
-            if empty_lines_between <= MAX_COMMENT_DISTANCE {
-                best_match = Some((i, comment_text.clone()));
-            }
-        }
-    }
-    
-    best_match
-}
-
-/// Helper function to find the approximate line number of a comment in source
-fn find_comment_line(comment_text: &str, source_lines: &[&str]) -> usize {
-    let first_line = comment_text.lines().next().unwrap_or("");
-    source_lines
-        .iter()
-        .position(|line| line.trim().ends_with(first_line))
-        .unwrap_or(0)
-}
-
-/// Count empty lines between comment and message
-fn count_empty_lines_between(comment_line: usize, message_line: usize, source_lines: &[&str]) -> usize {
-    if message_line <= comment_line + 1 {
-        return 0;
-    }
-    
-    (comment_line + 1..message_line)
-        .filter(|&i| i < source_lines.len() && source_lines[i].trim().is_empty())
-        .count()
 }
 
 fn convert_pattern(pattern: &Pattern<&str>) -> FluentPattern {
@@ -429,8 +347,6 @@ mod tests {
             elements: vec![FluentElement::Text(text.to_string())],
         }
     }
-
-
 
     // Helper function to assert a pattern contains expected text
     fn assert_pattern_text(pattern: &FluentPattern, expected: &str) {
@@ -779,30 +695,33 @@ just-attrs =
 
     #[test]
     fn test_comment_association_logic() {
-        // Test close association (1 empty line)
-        let ftl_close = r#"
-# This comment IS associated with hello.
-
-hello = Hello
-"#;
-        let resource_close = FluentResource::from_source(ftl_close).unwrap();
-        assert_eq!(resource_close.messages.len(), 1);
+        // Test that comments are only associated when directly attached (no empty lines)
+        let ftl_attached = r#"# This comment IS associated with hello
+hello = Hello"#;
+        let resource_attached = FluentResource::from_source(ftl_attached).unwrap();
+        assert_eq!(resource_attached.messages.len(), 1);
         assert_eq!(
-            resource_close.messages[0].comment.as_deref(),
-            Some("This comment IS associated with hello.")
+            resource_attached.messages[0].comment.as_deref(),
+            Some("This comment IS associated with hello")
         );
 
-        // Test distant association (2+ empty lines)
-        let ftl_distant = r#"
-# This comment is NOT associated with hello
-# because of the two empty lines.
+        // Test that comments separated by empty lines are NOT associated
+        let ftl_separated = r#"# This comment is NOT associated with hello
 
+hello = Hello"#;
+        let resource_separated = FluentResource::from_source(ftl_separated).unwrap();
+        assert_eq!(resource_separated.messages.len(), 1);
+        assert!(resource_separated.messages[0].comment.is_none());
 
-hello = Hello
-"#;
-        let resource_distant = FluentResource::from_source(ftl_distant).unwrap();
-        assert_eq!(resource_distant.messages.len(), 1);
-        assert!(resource_distant.messages[0].comment.is_none());
+        // Test multiple standalone comments are all ignored
+        let ftl_multiple = r#"# Standalone comment 1
+
+# Standalone comment 2
+
+hello = Hello"#;
+        let resource_multiple = FluentResource::from_source(ftl_multiple).unwrap();
+        assert_eq!(resource_multiple.messages.len(), 1);
+        assert!(resource_multiple.messages[0].comment.is_none());
     }
 
     #[test]
