@@ -52,8 +52,15 @@ pub fn parse_po_file(input_path: &Path) -> Result<Catalog> {
     let temp_file = tempfile::NamedTempFile::new()?;
     std::fs::write(temp_file.path(), preprocessed_content)?;
     
-    po_file::parse(temp_file.path())
-        .map_err(|e| ConversionError::PoParseError(format!("Failed to parse PO file: {}", e)).into())
+    // Catch panics from malformed PO content that might cause polib to panic
+    let parse_result = std::panic::catch_unwind(|| {
+        po_file::parse(temp_file.path())
+    });
+    
+    match parse_result {
+        Ok(result) => result.map_err(|e| ConversionError::InputFileParseError(format!("Failed to parse PO file: {}", e)).into()),
+        Err(_) => Err(ConversionError::InputFileParseError("Failed to parse PO file: malformed content caused parser panic".to_string()).into())
+    }
 }
 
 /// Preprocess PO content to ensure all required metadata fields are present
@@ -65,7 +72,7 @@ pub fn preprocess_po_content(content: &str) -> Result<String> {
 /// Write a PO catalog to file
 pub fn write_po_file(catalog: &Catalog, output_path: &Path) -> Result<()> {
     po_file::write(catalog, output_path)
-        .map_err(|e| ConversionError::PoWriteError(format!("Failed to write PO file: {}", e)))?;
+        .map_err(|e| ConversionError::OutputFileWriteError(format!("Failed to write PO file: {}", e)))?;
     Ok(())
 }
 

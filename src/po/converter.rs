@@ -67,10 +67,28 @@ greeting = Hello, {$name}!
         // Verify PO file was created
         assert!(output_path.exists());
         let po_content = fs::read_to_string(&output_path).unwrap();
-        assert!(po_content.contains("msgid \"Hello World\""));
-        assert!(po_content.contains("msgctxt \"hello\""));
-        assert!(po_content.contains("msgid \"Hello, {$name}!\""));
-        assert!(po_content.contains("msgctxt \"greeting\""));
+        
+        // Verify we have the expected metadata header structure
+        assert!(po_content.contains("Project-Id-Version:"),
+                "PO file should contain required metadata headers");
+        assert!(po_content.contains("Content-Type: text/plain; charset=UTF-8"),
+                "PO file should contain proper content type header");
+
+        // Verify complete PO entry blocks with proper pairing of msgctxt, msgid, and msgstr
+        
+        // Check for "hello" entry block
+        let hello_block = r#"msgctxt "hello"
+msgid "Hello World"
+msgstr "Hello World""#;
+        assert!(po_content.contains(hello_block), 
+                "PO content should contain complete 'hello' entry block with properly paired msgctxt, msgid, and msgstr");
+        
+        // Check for "greeting" entry block  
+        let greeting_block = r#"msgctxt "greeting"
+msgid "Hello, {$name}!"
+msgstr "Hello, {$name}!""#;
+        assert!(po_content.contains(greeting_block),
+                "PO content should contain complete 'greeting' entry block with properly paired msgctxt, msgid, and msgstr");
     }
 
     #[test]
@@ -94,8 +112,21 @@ greeting = Hello, {$name}!
         // Verify PO file was created with plural forms
         assert!(output_path.exists());
         let po_content = fs::read_to_string(&output_path).unwrap();
-        assert!(po_content.contains("msgid_plural"));
-        assert!(po_content.contains("FLUENT_SELECTOR:num"));
+
+        // Verify header metadata contains plural forms information
+        assert!(po_content.contains("Plural-Forms:"),
+                "Should contain Plural-Forms header for proper plural handling");
+
+        // Verify complete plural entry block with proper structure
+        let plural_block = r#"#. FLUENT_SELECTOR:num
+msgctxt "count"
+msgid "{$num} item"
+msgid_plural "{$num} items"
+msgstr[0] "FLUENT_ONE:{$num} item"
+msgstr[1] "FLUENT_OTHER:{$num} items""#;
+        assert!(po_content.contains(plural_block),
+                "PO content should contain complete plural entry block with properly formatted FLUENT_SELECTOR comment, msgctxt, msgid, msgid_plural, and msgstr entries");
+        
     }
 
     #[test]
@@ -104,37 +135,28 @@ greeting = Hello, {$name}!
         let input_path = temp_dir.path().join("input.po");
         let output_path = temp_dir.path().join("output.ftl");
 
-        use polib::catalog::Catalog;
-        use polib::metadata::CatalogMetadata;
-        use polib::message::Message as PoMessage;
-        use crate::po::po_format::write_po_file;
+        // Create a simple PO file with hardcoded content
+        let po_content = r#"msgid ""
+msgstr ""
+"Project-Id-Version: test 1.0\n"
+"POT-Creation-Date: 2025-01-01 12:00+0000\n"
+"PO-Revision-Date: 2025-01-01 12:00+0000\n"
+"Last-Translator: Test\n"
+"Language-Team: English\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en\n"
 
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = "text/plain; charset=UTF-8".to_string();
-        
-        let mut catalog = Catalog::new(metadata);
-        
-        // Add hello message
-        let mut msg_builder = PoMessage::build_singular();
-        msg_builder
-            .with_msgctxt("hello".to_string())
-            .with_msgid("Hello World".to_string())
-            .with_msgstr("Hello World".to_string());
-        let message = msg_builder.done();
-        catalog.append_or_update(message);
-        
-        // Add greeting message
-        let mut msg_builder = PoMessage::build_singular();
-        msg_builder
-            .with_msgctxt("greeting".to_string())
-            .with_msgid("Hello, {$name}!".to_string())
-            .with_msgstr("Hello, {$name}!".to_string());
-        let message = msg_builder.done();
-        catalog.append_or_update(message);
-        
-        // Write the catalog to file
-        write_po_file(&catalog, &input_path).unwrap();
+msgctxt "hello"
+msgid "Hello World"
+msgstr "Hello World"
+
+msgctxt "greeting"
+msgid "Hello, {$name}!"
+msgstr "Hello, {$name}!"
+"#;
+        fs::write(&input_path, po_content).unwrap();
         
         // Convert to Fluent
         let result = po_to_fluent(&input_path, &output_path);
@@ -153,11 +175,20 @@ greeting = Hello, {$name}!
         let po_file = temp_dir.path().join("intermediate.po");
         let converted_ftl = temp_dir.path().join("converted.ftl");
         
-        // Original Fluent content
+        // Original Fluent content with various complex cases including multiline values
         let original_content = r#"hello = Hello World
 greeting = Hello, {$name}!
 # This is a comment
 farewell = Goodbye, {$name}!
+# Multiline message for testing round-trip preservation
+description = This is the first line of a longer description.
+    This is the second line with proper indentation.
+    And this is the third line that should be preserved.
+# Another multiline with variables
+# and multiline comments
+instructions = Step 1: Click the {$button} button
+    Step 2: Enter your {$username} in the field
+    Step 3: Save your changes
 "#;
         fs::write(&original_ftl, original_content).unwrap();
         
@@ -172,10 +203,30 @@ farewell = Goodbye, {$name}!
         // Read the converted content
         let converted_content = fs::read_to_string(&converted_ftl).unwrap();
         
-        // Check that key messages are preserved
+        // Check that all messages are preserved, including multiline formatting
         assert!(converted_content.contains("hello = Hello World"));
         assert!(converted_content.contains("greeting = Hello, {$name}!"));
-        assert!(converted_content.contains("farewell = Goodbye, {$name}!"));
+        assert!(converted_content.contains(
+            r#"# This is a comment
+farewell = Goodbye, {$name}!"#
+        ));
+        
+        // Verify multiline content is preserved with proper indentation
+        assert!(converted_content.contains(
+            r#"# Multiline message for testing round-trip preservation
+description = This is the first line of a longer description.
+    This is the second line with proper indentation.
+    And this is the third line that should be preserved."#
+        ));
+        
+        // Verify multiline content with variables is preserved
+        assert!(converted_content.contains(
+            r#"# Another multiline with variables
+# and multiline comments
+instructions = Step 1: Click the {$button} button
+    Step 2: Enter your {$username} in the field
+    Step 3: Save your changes"#
+        ));
     }
 
     #[test]
@@ -228,10 +279,23 @@ greeting = Hello, {$name}!
         let result = fluent_to_po(&input_path, &output_path, "en", None);
         assert!(result.is_ok());
         
-        // Verify PO file contains comments
+        // Verify PO file contains comments with proper format
         let po_content = fs::read_to_string(&output_path).unwrap();
-        assert!(po_content.contains("This is a greeting message"));
-        assert!(po_content.contains("Welcome message for users"));
+        
+        // Verify complete comment blocks with proper PO extracted comment format (#.)
+        let hello_comment_block = r#"#. This is a greeting message
+msgctxt "hello"
+msgid "Hello World"
+msgstr "Hello World""#;
+        assert!(po_content.contains(hello_comment_block),
+                "Should contain complete 'hello' entry with properly formatted extracted comment using '#.' prefix");
+        
+        let greeting_comment_block = r#"#. Welcome message for users
+msgctxt "greeting"
+msgid "Hello, {$name}!"
+msgstr "Hello, {$name}!""#;
+        assert!(po_content.contains(greeting_comment_block),
+                "Should contain complete 'greeting' entry with properly formatted extracted comment using '#.' prefix");
     }
 
     #[test]
@@ -254,6 +318,106 @@ greeting = Hello, {$name}!
         // Try to convert non-existent file
         let result = po_to_fluent(&input_path, &output_path);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fluent_to_po_unclosed_select_expression() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("unclosed_select.ftl");
+        let output_path = temp_dir.path().join("output.po");
+        
+        // Test specific error: unclosed select expression
+        let content = r#"hello = Hello World
+bad_plural = {$count ->
+    [one] item
+    # Missing closing brace
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
+        assert!(result.is_err(), "Should fail on unclosed select expression");
+    }
+
+    #[test]
+    fn test_fluent_to_po_mismatched_braces() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("mismatched_braces.ftl");
+        let output_path = temp_dir.path().join("output.po");
+        
+        // Test specific error: mismatched braces (opening { but closing with ])
+        let content = r#"hello = Hello World
+greeting = Hello, {$name]!
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
+        assert!(result.is_err(), "Should fail on mismatched braces");
+    }
+
+    #[test]
+    fn test_fluent_to_po_invalid_key_syntax() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("invalid_key.ftl");
+        let output_path = temp_dir.path().join("output.po");
+        
+        // Test specific error: invalid attribute syntax (missing dot before attribute)
+        let content = r#"button = Click me
+Button for clicking
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = fluent_to_po(&input_path, &output_path, "en", None);
+        assert!(result.is_err(), "Should fail on invalid attribute syntax");
+    }
+
+    #[test]
+    fn test_po_to_fluent_completely_invalid_structure() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("invalid_structure.po");
+        let output_path = temp_dir.path().join("output.ftl");
+        
+        // Test specific error: binary/non-text file content that should fail parsing
+        let content = b"\x00\x01\x02\xFF\xFE\x80\x90Binary data that is not valid text\x00\x00";
+        fs::write(&input_path, content).unwrap();
+        
+        let result = po_to_fluent(&input_path, &output_path);
+        assert!(result.is_err(), "Should fail on binary/invalid file content");
+    }
+
+    #[test]
+    fn test_po_to_fluent_invalid_escape_sequence() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("invalid_escape.po");
+        let output_path = temp_dir.path().join("output.ftl");
+        
+        // Test specific error: invalid escape sequence
+        let content = r#"msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgctxt "greeting"  
+msgid "Hello, \z invalid escape!"
+msgstr "Hello, world!"
+"#;
+        fs::write(&input_path, content).unwrap();
+        
+        let result = po_to_fluent(&input_path, &output_path);
+        assert!(result.is_err(), "Should fail on invalid escape sequence");
+    }
+
+    #[test]
+    fn test_po_to_fluent_malformed_msgid_syntax() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("malformed_msgid.po");
+        let output_path = temp_dir.path().join("output.ftl");
+        
+        // Test specific malformed PO content: broken msgid structure (missing quotes)
+        // This causes polib to fail during metadata parsing
+        let content = "msgid\nmsgstr \"test\"";
+        fs::write(&input_path, content).unwrap();
+        
+        let result = po_to_fluent(&input_path, &output_path);
+        assert!(result.is_err(), "Should fail on broken msgid structure");
     }
 
     #[test]
