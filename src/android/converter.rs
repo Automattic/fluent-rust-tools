@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::android::android_format::{AndroidResources, AndroidString, AndroidPlural};
-use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement};
+use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement, format_string_value_as_multiline_fluent_text};
 
 // Constants
 const COUNT_PLACEHOLDER: &str = "%d";
@@ -405,15 +405,20 @@ fn convert_android_text_to_fluent_pattern(
     variable_mapping: &HashMap<String, String>,
     original_variables: Option<&Vec<String>>,
 ) -> Result<FluentPattern> {
-    let mut elements = Vec::new();
+    let unescaped_text = unescape_android_string(android_text);
+    let formatted_text = format_string_value_as_multiline_fluent_text(&unescaped_text);
+
+    // Regex to check if the text has placeholders
     let re = Regex::new(ANDROID_PLACEHOLDER_REGEX).unwrap();
+
+    let mut elements = Vec::new();
     
     let mut last_end = 0;
     let mut var_index = 0;
     
-    for mat in re.find_iter(android_text) {
+    for mat in re.find_iter(&formatted_text) {
         // Add text before placeholder
-        add_text_element_if_not_empty(&mut elements, &android_text[last_end..mat.start()]);
+        add_text_element_if_not_empty(&mut elements, &formatted_text[last_end..mat.start()]);
         
         // Add variable element
         let placeholder = mat.as_str();
@@ -425,11 +430,11 @@ fn convert_android_text_to_fluent_pattern(
     }
     
     // Add remaining text
-    add_text_element_if_not_empty(&mut elements, &android_text[last_end..]);
+    add_text_element_if_not_empty(&mut elements, &formatted_text[last_end..]);
     
     // Handle case with no placeholders
     if elements.is_empty() {
-        elements.push(FluentElement::Text(unescape_android_string(android_text)));
+        elements.push(FluentElement::Text(formatted_text));
     }
 
     Ok(FluentPattern { elements })
@@ -441,9 +446,8 @@ fn create_placeholder(counter: u32) -> String {
 }
 
 fn add_text_element_if_not_empty(elements: &mut Vec<FluentElement>, text: &str) {
-    let unescaped = unescape_android_string(text);
-    if !unescaped.is_empty() {
-        elements.push(FluentElement::Text(unescaped));
+    if !text.is_empty() {
+        elements.push(FluentElement::Text(text.to_string()));
     }
 }
 
@@ -844,5 +848,58 @@ item_count = {$count ->
         } else {
             panic!("Expected text element");
         }
+    }
+
+    #[test]
+    fn test_multiline_android_to_fluent_formatting() {
+        // Test that multiline Android strings are correctly formatted with proper indentation
+        let variable_mapping = HashMap::new();
+        
+        // Test multiline Android text (using \n as Android would store it)
+        let android_text = "This is line one\\nThis is line two\\nThis is line three";
+        
+        let pattern = convert_android_text_to_fluent_pattern(
+            android_text,
+            &variable_mapping,
+            None,
+        ).unwrap();
+        
+        // The pattern should have 1 text element containing the properly formatted multiline text
+        assert_eq!(pattern.elements.len(), 1);
+        
+        // Check that the element contains the expected multiline text with proper formatting
+        if let FluentElement::Text(text) = &pattern.elements[0] {
+            // The text should be formatted with proper indentation for Fluent
+            let expected_text = "This is line one\n    This is line two\n    This is line three";
+            assert_eq!(text, expected_text);
+        } else {
+            panic!("Expected text element");
+        }
+        
+        // Test that when this pattern is converted to Fluent source, it has proper indentation
+        let temp_resource = FluentResource {
+            messages: vec![FluentMessage {
+                id: "test-multiline".to_string(),
+                value: Some(pattern),
+                attributes: HashMap::new(),
+                comment: None,
+            }],
+        };
+        
+        let fluent_content = temp_resource.to_source();
+        
+        // The generated Fluent should have proper indentation
+        assert!(fluent_content.contains("test-multiline ="));
+        assert!(fluent_content.contains("This is line one"));
+        assert!(fluent_content.contains("    This is line two"));
+        assert!(fluent_content.contains("    This is line three"));
+        
+        // Verify the generated Fluent can be parsed back without errors
+        let reparsed = FluentResource::from_source(&fluent_content);
+        assert!(reparsed.is_ok(), "Generated multiline Fluent should be parseable without errors");
+        
+        let reparsed_resource = reparsed.unwrap();
+        assert_eq!(reparsed_resource.messages.len(), 1);
+        assert_eq!(reparsed_resource.messages[0].id, "test-multiline");
     }
 }
