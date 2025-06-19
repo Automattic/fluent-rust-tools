@@ -5,7 +5,7 @@ use polib::message::{Message as PoMessage, MessageView};
 
 use anyhow::Result;
 use std::path::Path;
-use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement, extract_pattern_text};
+use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement, extract_pattern_text, parse_string_value_as_fluent_pattern};
 use crate::shared::error::ConversionError;
 use std::collections::HashMap;
 
@@ -95,30 +95,30 @@ pub fn fluent_to_po_catalog(
     Ok(catalog)
 }
 
-/// Convert a PO catalog to Fluent format
-pub fn po_catalog_to_fluent(catalog: Catalog) -> Result<String> {
-    let mut content = String::new();
+/// Convert a PO catalog to FluentResource
+pub fn po_catalog_to_fluent(catalog: Catalog) -> Result<FluentResource> {
+    let mut fluent_messages = Vec::new();
     
+    // Convert each PO message to Fluent message
     for message in catalog.messages() {
-        let initial_length = content.len();
-        
-        add_comments_to_fluent(&mut content, message.comments());
-        
         let key = generate_fluent_key_from_message(message);
         
-        if message.is_plural() {
-            convert_plural_po_message_to_fluent(&mut content, &key, message)?;
-            content.push('\n');
+        // Convert PO message to Fluent message
+        let fluent_message = if message.is_plural() {
+            convert_plural_po_message_to_fluent_message(&key, message)?
         } else {
-            convert_singular_po_message_to_fluent(&mut content, &key, message)?;
-            // Only add newline if content was actually added
-            if content.len() > initial_length {
-                content.push('\n');
-            }
+            convert_singular_po_message_to_fluent_message(&key, message)?
+        };
+        
+        // Skip empty messages (untranslated entries)
+        if let Some(fluent_message) = fluent_message {
+            fluent_messages.push(fluent_message);
         }
     }
     
-    Ok(content)
+    Ok(FluentResource {
+        messages: fluent_messages,
+    })
 }
 
 // =============================================================================
@@ -347,47 +347,126 @@ fn convert_message_attributes(
     Ok(())
 }
 
-fn convert_singular_po_message_to_fluent(
-    content: &mut String, 
+fn convert_singular_po_message_to_fluent_message(
     key: &str, 
     message: &dyn MessageView
-) -> Result<()> {
+) -> Result<Option<FluentMessage>> {
     let msgstr = message.msgstr()?;
     
     // Skip entries with empty msgstr values as they represent untranslated strings
     if msgstr.trim().is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     
-    if msgstr.contains('\n') {
-        write_multiline_fluent_message(content, key, &msgstr);
-    } else {
-        write_singleline_fluent_message(content, key, &msgstr);
-    }
+    // Simply try to parse the unescaped content as a Fluent message value
+    let unescaped_msgstr = unescape_fluent_value(&msgstr);
+    let pattern = parse_string_value_as_fluent_pattern(key, &unescaped_msgstr);
     
-    Ok(())
+    // Extract comments (excluding FLUENT_SELECTOR comments which are handled separately)
+    let comment = extract_filtered_comments(message.comments());
+    
+    Ok(Some(FluentMessage {
+        id: key.to_string(),
+        value: Some(pattern),
+        attributes: HashMap::new(),
+        comment,
+    }))
 }
 
-fn convert_plural_po_message_to_fluent(
-    content: &mut String, 
+fn convert_plural_po_message_to_fluent_message(
     key: &str, 
     message: &dyn MessageView
-) -> Result<()> {
+) -> Result<Option<FluentMessage>> {
     let msgstr_plural = message.msgstr_plural()?;
     let selector = extract_selector_from_comments(message.comments())
         .unwrap_or_else(|| "count".to_string());
     
-        content.push_str(&format!("{} = {{${} ->\n", key, selector));
+    // Build variants directly using Fluent structures
+    let mut variants = HashMap::new();
+    let mut has_other = false;
+    
+    for msgstr in msgstr_plural.iter() {
+        let cleaned_msgstr = unescape_fluent_value(msgstr);
         
-        let mut has_other = false;
-        for msgstr in msgstr_plural.iter() {
-        has_other = process_plural_form(content, msgstr, has_other);
+        if let Some((variant_key, text)) = parse_plural_form(&cleaned_msgstr) {
+            if !text.trim().is_empty() {
+                // Parse each variant text as a Fluent pattern
+                let variant_pattern = parse_string_value_as_fluent_pattern(key, &text);
+                
+                if variant_key == "other" {
+                    has_other = true;
+                }
+                variants.insert(variant_key, variant_pattern);
+            }
+        }
     }
     
-    ensure_other_form_exists(content, message, has_other);
-    content.push_str("}\n");
+    // Ensure we have at least an 'other' form (required by Fluent)
+    if !has_other {
+        let fallback_text = message.msgid_plural().unwrap_or("items");
+        variants.insert("other".to_string(), FluentPattern {
+            elements: vec![FluentElement::Text(fallback_text.to_string())],
+        });
+    }
     
-    Ok(())
+    if variants.is_empty() {
+        return Ok(None);
+    }
+    
+    // Create the plural pattern directly using Fluent structures
+    let pattern = FluentPattern {
+        elements: vec![FluentElement::Plural { selector, variants }],
+    };
+    
+    let comment = extract_filtered_comments(message.comments());
+    
+    Ok(Some(FluentMessage {
+        id: key.to_string(),
+        value: Some(pattern),
+        attributes: HashMap::new(),
+        comment,
+    }))
+}
+
+/// Parse a PO plural form string into (variant_key, text)
+fn parse_plural_form(msgstr: &str) -> Option<(String, String)> {
+    if let Some(colon_pos) = msgstr.find(':') {
+        let (marker, text) = msgstr.split_at(colon_pos);
+        let text = text[1..].to_string(); // Remove the ':' character
+        
+        let variant_key = match marker {
+            FLUENT_ZERO_MARKER => "0".to_string(),
+            FLUENT_ONE_MARKER => "one".to_string(),
+            FLUENT_OTHER_MARKER => "other".to_string(),
+            other if other.starts_with(FLUENT_MARKER_PREFIX) => {
+                other[FLUENT_MARKER_PREFIX.len()..].to_lowercase()
+            }
+            _ => "other".to_string(), // Fallback for unknown markers
+        };
+        
+        Some((variant_key, text))
+    } else {
+        // Fallback: treat as 'other' form if no marker
+        Some(("other".to_string(), msgstr.to_string()))
+    }
+}
+
+/// Extract comments excluding FLUENT_SELECTOR directives
+fn extract_filtered_comments(comments: &str) -> Option<String> {
+    if comments.is_empty() {
+        return None;
+    }
+    
+    let filtered_comments: Vec<&str> = comments
+        .lines()
+        .filter(|line| !line.trim().starts_with(FLUENT_SELECTOR_PREFIX))
+        .collect();
+    
+    if filtered_comments.is_empty() {
+        None
+    } else {
+        Some(filtered_comments.join("\n"))
+    }
 }
 
 // =============================================================================
@@ -429,14 +508,6 @@ fn get_default_metadata_value(field: &str) -> &'static str {
         "Language" => DEFAULT_LANGUAGE,
         "Plural-Forms" => DEFAULT_PLURAL_FORMS,
         _ => "",
-    }
-}
-
-fn add_comments_to_fluent(content: &mut String, comments: &str) {
-    if !comments.is_empty() {
-        for comment_line in comments.lines() {
-            content.push_str(&format!("# {}\n", comment_line));
-        }
     }
 }
 
@@ -487,93 +558,6 @@ fn get_source_plural_info(source_message: Option<&FluentMessage>) -> Option<Plur
     source_message
         .and_then(|sm| sm.value.as_ref())
         .and_then(|sp| extract_plural_info(sp))
-}
-
-fn write_multiline_fluent_message(content: &mut String, key: &str, msgstr: &str) {
-    let lines: Vec<&str> = msgstr.lines().collect();
-    
-    if lines.is_empty() {
-        content.push_str(&format!("{} =\n", key));
-        return;
-    }
-    
-    // First line goes on the same line as the key = 
-    content.push_str(&format!("{} = {}\n", key, unescape_fluent_value(lines[0])));
-    
-    // Subsequent lines are indented
-    for line in &lines[1..] {
-        content.push_str(&format!("    {}\n", unescape_fluent_value(line)));
-    }
-}
-
-fn write_singleline_fluent_message(content: &mut String, key: &str, msgstr: &str) {
-    content.push_str(&format!("{} = {}\n", key, unescape_fluent_value(msgstr)));
-}
-
-fn process_plural_form(content: &mut String, msgstr: &str, mut has_other: bool) -> bool {
-            let cleaned_msgstr = unescape_fluent_value(msgstr);
-            
-            if let Some(colon_pos) = cleaned_msgstr.find(':') {
-                let (marker, text) = cleaned_msgstr.split_at(colon_pos);
-                let text = &text[1..]; // Remove the ':' character
-                
-                match marker {
-            FLUENT_ZERO_MARKER => {
-                        content.push_str(&format!("    [0] {}\n", text));
-                    }
-            FLUENT_ONE_MARKER => {
-                        content.push_str(&format!("    [one] {}\n", text));
-                    }
-            FLUENT_OTHER_MARKER => {
-                        if !has_other {
-                            content.push_str(&format!("   *[other] {}\n", text));
-                            has_other = true;
-                        }
-                    }
-            other_marker if other_marker.starts_with(FLUENT_MARKER_PREFIX) => {
-                has_other = handle_other_fluent_marker(content, other_marker, text, has_other);
-                    }
-                    _ => {
-                // Fallback for malformed markers
-                        if !has_other {
-                            content.push_str(&format!("   *[other] {}\n", text));
-                            has_other = true;
-                        }
-                    }
-                }
-    } else if !has_other {
-        // Fallback for messages without markers
-                    content.push_str(&format!("   *[other] {}\n", cleaned_msgstr));
-                    has_other = true;
-    }
-    
-    has_other
-}
-
-fn handle_other_fluent_marker(
-    content: &mut String, 
-    marker: &str, 
-    text: &str, 
-    mut has_other: bool
-) -> bool {
-    let key_part = &marker[FLUENT_MARKER_PREFIX.len()..];
-    let key_lower = key_part.to_lowercase();
-    
-    if key_lower == "other" && !has_other {
-        content.push_str(&format!("   *[other] {}\n", text));
-        has_other = true;
-    } else {
-        content.push_str(&format!("    [{}] {}\n", key_lower, text));
-    }
-    
-    has_other
-}
-
-fn ensure_other_form_exists(content: &mut String, message: &dyn MessageView, has_other: bool) {
-    if !has_other {
-        let fallback_text = message.msgid_plural().unwrap_or("");
-        content.push_str(&format!("   *[other] {}\n", fallback_text));
-    }
 }
 
 fn extract_plural_info(pattern: &FluentPattern) -> Option<PluralInfo> {
@@ -809,12 +793,17 @@ mod tests {
         let result = po_catalog_to_fluent(catalog);
         assert!(result.is_ok());
         
-        let fluent_content = result.unwrap();
+        let fluent_resource = result.unwrap();
+        
+        // Convert to string for testing using the same logic as converter.rs
+        let fluent_content = fluent_resource.to_source();
+        
         assert!(fluent_content.contains("# A simple greeting"));
         assert!(fluent_content.contains("hello = Hello World"));
-        assert!(fluent_content.contains("item_count = {$count ->"));
-        assert!(fluent_content.contains("[one] {$count} item"));
-        assert!(fluent_content.contains("*[other] {$count} items"));
+        assert!(fluent_content.contains("item_count ="));
+        assert!(fluent_content.contains("{ $count ->"));
+        assert!(fluent_content.contains("[one] { $count } item"));
+        assert!(fluent_content.contains("*[other] { $count } items"));
         assert!(fluent_content.contains("# Item counter"));
     }
 
@@ -999,7 +988,10 @@ mod tests {
         let result = po_catalog_to_fluent(catalog);
         assert!(result.is_ok());
         
-        let fluent_content = result.unwrap();
+        let fluent_resource = result.unwrap();
+        
+        // Convert to string for testing
+        let fluent_content = fluent_resource.to_source();
         
         // Empty and whitespace-only entries should be omitted
         assert!(!fluent_content.contains("empty-key"));
@@ -1013,17 +1005,48 @@ mod tests {
         assert!(!fluent_content.contains("= \n"));
         assert!(!fluent_content.contains("=  "));
         
-        // Check that there are no excessive empty lines
-        let lines: Vec<&str> = fluent_content.lines().collect();
-        let mut consecutive_empty = 0;
+        // Check that messages are present (the formatting is now handled in converter.rs)
+        assert_eq!(fluent_resource.messages.len(), 2);
+    }
+
+    #[test]
+    fn test_multiline_po_to_fluent_formatting() {
+        // Test that multiline PO messages are correctly formatted with proper indentation
+        let mut metadata = CatalogMetadata::default();
+        metadata.language = "en".to_string();
+        metadata.content_type = "text/plain; charset=UTF-8".to_string();
         
-        for line in lines {
-            if line.trim().is_empty() {
-                consecutive_empty += 1;
-                assert!(consecutive_empty <= 1, "Found {} consecutive empty lines", consecutive_empty);
-            } else {
-                consecutive_empty = 0;
-            }
-        }
+        let mut catalog = Catalog::new(metadata);
+        
+        // Add multiline message
+        let mut msg_builder = PoMessage::build_singular();
+        msg_builder
+            .with_msgctxt("multiline-message".to_string())
+            .with_msgid("Multi line source".to_string())
+            .with_msgstr("This is line one\nThis is line two\nThis is line three".to_string());
+        catalog.append_or_update(msg_builder.done());
+        
+        // Convert to Fluent
+        let result = po_catalog_to_fluent(catalog);
+        assert!(result.is_ok());
+        
+        let fluent_resource = result.unwrap();
+        
+        // Convert to string and verify proper multiline formatting
+        let fluent_content = fluent_resource.to_source();
+        
+        // The message should be formatted with proper indentation
+        assert!(fluent_content.contains("multiline-message ="));
+        assert!(fluent_content.contains("This is line one"));
+        assert!(fluent_content.contains("    This is line two"));
+        assert!(fluent_content.contains("    This is line three"));
+        
+        // Verify the generated Fluent can be parsed back without errors
+        let reparsed = FluentResource::from_source(&fluent_content);
+        assert!(reparsed.is_ok(), "Generated multiline Fluent should be parseable without errors");
+        
+        let reparsed_resource = reparsed.unwrap();
+        assert_eq!(reparsed_resource.messages.len(), 1);
+        assert_eq!(reparsed_resource.messages[0].id, "multiline-message");
     }
 }

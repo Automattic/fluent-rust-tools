@@ -58,11 +58,31 @@ impl FluentResource {
     }
 
     pub fn to_source(&self) -> String {
-        // Convert our custom structures back to fluent_syntax AST
-        let ast_resource = self.to_fluent_syntax_ast();
+        let mut output = String::new();
+
+        if self.messages.is_empty() {
+            return output;
+        }
         
-        // Use the built-in serializer - this is more reliable and handles all edge cases
-        serializer::serialize(&ast_resource)
+        // At this point we could serialize the entire structure with the library, but that will generate a
+        // Fluent file without empty lines between strings
+        for (i, message) in self.messages.iter().enumerate() {
+            // Add spacing before each message (except the first)
+            if i > 0 {
+                output.push('\n');
+            }
+            
+            // Generate each message individually using the built-in serializer
+            let temp_resource = FluentResource {
+                messages: vec![message.clone()],
+            };
+
+            let ast_resource = temp_resource.to_fluent_syntax_ast();
+            let serialized = serializer::serialize(&ast_resource);
+            output.push_str(&serialized);
+        }
+        
+        output
     }
 
     /// Convert our custom FluentResource back to fluent_syntax AST for serialization
@@ -352,10 +372,52 @@ fn extract_element_text(element: &FluentElement) -> String {
     }
 }
 
+/// Helper function to parse text content as a Fluent pattern with proper multiline formatting
+/// 
+/// This function takes raw text and formats it properly for Fluent syntax by:
+/// - Adding proper indentation to multiline text (4 spaces for continuation lines)
+/// - Parsing the formatted text through the Fluent parser to ensure valid syntax
+/// - Returning a FluentPattern that can be used in message values
+pub fn parse_string_value_as_fluent_pattern(key: &str, text: &str) -> FluentPattern {
+    let formatted_text = format_string_value_as_multiline_fluent_text(text);
+    let fluent_content = format!("{} = {}", key, formatted_text);
+    match FluentResource::from_source(&fluent_content) {
+        Ok(resource) => {
+            resource.messages.first()
+                .and_then(|message| message.value.clone())
+                .unwrap_or_else(|| FluentPattern {
+                    elements: vec![FluentElement::Text(text.to_string())],
+                })
+        }
+        Err(_) => FluentPattern {
+            elements: vec![FluentElement::Text(text.to_string())],
+        }
+    }
+}
+
+pub fn format_string_value_as_multiline_fluent_text(text: &str) -> String {
+    if text.contains('\n') {
+        text.lines()
+            .enumerate()
+            .map(|(i, line)| {
+                if i == 0 {
+                    line.to_string()
+                } else {
+                    format!("    {}", line)  // Indent continuation lines with 4 spaces
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        text.to_string()
+    }
+}
+
 /// Simple function to parse Fluent content using the comprehensive parser
 pub fn parse_fluent(content: &str) -> Result<FluentResource> {
     FluentResource::from_source(content)
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -770,6 +832,61 @@ hello = Hello"#;
         let pattern = message.value.as_ref().unwrap();
         assert_eq!(pattern.elements.len(), 1);
         assert_pattern_text(pattern, "Hello World");
+    }
+
+    #[test]
+    fn test_parse_string_value_as_fluent_pattern() {
+        // Test simple single-line text
+        let pattern = parse_string_value_as_fluent_pattern("test", "Hello World");
+        assert_eq!(pattern.elements.len(), 1);
+        if let FluentElement::Text(text) = &pattern.elements[0] {
+            assert_eq!(text, "Hello World");
+        } else {
+            panic!("Expected text element");
+        }
+        
+        // Test multiline text
+        let multiline_text = "This is line one\nThis is line two\nThis is line three";
+        let pattern = parse_string_value_as_fluent_pattern("test", multiline_text);
+        
+        // Should have 3 text elements (one per line) - this is the correct internal representation
+        assert_eq!(pattern.elements.len(), 3);
+        
+        if let FluentElement::Text(text) = &pattern.elements[0] {
+            assert_eq!(text, "This is line one\n");
+        } else {
+            panic!("Expected text element");
+        }
+        
+        if let FluentElement::Text(text) = &pattern.elements[1] {
+            assert_eq!(text, "This is line two\n");
+        } else {
+            panic!("Expected text element");
+        }
+        
+        if let FluentElement::Text(text) = &pattern.elements[2] {
+            assert_eq!(text, "This is line three");
+        } else {
+            panic!("Expected text element");
+        }
+        
+        // Test that when this pattern is converted to Fluent source, it has proper indentation
+        let temp_resource = FluentResource {
+            messages: vec![FluentMessage {
+                id: "test-multiline".to_string(),
+                value: Some(pattern),
+                attributes: HashMap::new(),
+                comment: None,
+            }],
+        };
+        
+        let fluent_content = temp_resource.to_source();
+        
+        // The generated Fluent should have proper indentation
+        assert!(fluent_content.contains("test-multiline ="));
+        assert!(fluent_content.contains("This is line one"));
+        assert!(fluent_content.contains("    This is line two"));
+        assert!(fluent_content.contains("    This is line three"));
     }
 
     #[test]
