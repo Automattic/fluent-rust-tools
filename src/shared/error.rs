@@ -15,31 +15,18 @@ pub enum ConversionError {
     #[error("Unsupported Fluent construct: {0}")]
     UnsupportedFluentConstruct(String),
     
-    // Android XML errors
+    // Generic input file parsing errors
     #[allow(dead_code)]
-    #[error("Failed to parse XML file: {0}")]
-    XmlParseError(#[from] quick_xml::Error),
+    #[error("Failed to parse input file: {0}")]
+    InputFileParseError(String),
     
     #[allow(dead_code)]
-    #[error("Invalid Android XML format: {0}")]
-    InvalidAndroidXml(String),
+    #[error("Invalid input file format: {0}")]
+    InputFileInvalidFormat(String),
     
     #[allow(dead_code)]
-    #[error("Invalid variable mapping in comment: {0}")]
-    InvalidVariableMapping(String),
-    
-    // PO format errors
-    #[allow(dead_code)]
-    #[error("Failed to parse PO file: {0}")]
-    PoParseError(String),
-    
-    #[allow(dead_code)]
-    #[error("Failed to write PO file: {0}")]
-    PoWriteError(String),
-    
-    #[allow(dead_code)]
-    #[error("Invalid PO format: {0}")]
-    InvalidPoFormat(String),
+    #[error("Failed to write output file: {0}")]
+    OutputFileWriteError(String),
     
     // General errors
     #[allow(dead_code)]
