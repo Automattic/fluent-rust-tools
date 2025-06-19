@@ -864,26 +864,14 @@ item_count = {$count ->
             None,
         ).unwrap();
         
-
+        // The pattern should have 1 text element containing the properly formatted multiline text
+        assert_eq!(pattern.elements.len(), 1);
         
-        // The pattern should have 3 text elements (one per line) - this is the correct internal representation
-        assert_eq!(pattern.elements.len(), 3);
-        
-        // Check that the elements contain the expected text
+        // Check that the element contains the expected multiline text with proper formatting
         if let FluentElement::Text(text) = &pattern.elements[0] {
-            assert_eq!(text, "This is line one\n");
-        } else {
-            panic!("Expected text element");
-        }
-        
-        if let FluentElement::Text(text) = &pattern.elements[1] {
-            assert_eq!(text, "This is line two\n");
-        } else {
-            panic!("Expected text element");
-        }
-        
-        if let FluentElement::Text(text) = &pattern.elements[2] {
-            assert_eq!(text, "This is line three");
+            // The text should be formatted with proper indentation for Fluent
+            let expected_text = "This is line one\n    This is line two\n    This is line three";
+            assert_eq!(text, expected_text);
         } else {
             panic!("Expected text element");
         }
