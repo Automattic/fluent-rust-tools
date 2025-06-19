@@ -1,15 +1,52 @@
 use anyhow::Result;
-use quick_xml::{events::Event, Reader, Writer};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// Constants for XML element and attribute names
-const XML_STRING: &[u8] = b"string";
-const XML_PLURALS: &[u8] = b"plurals";
-const XML_ITEM: &[u8] = b"item";
-const ATTR_NAME: &[u8] = b"name";
-const ATTR_TRANSLATABLE: &[u8] = b"translatable";
-const ATTR_QUANTITY: &[u8] = b"quantity";
+// Serde structures for XML parsing
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename = "resources")]
+pub struct XmlResources {
+    #[serde(rename = "$value", default)]
+    pub items: Vec<XmlResource>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum XmlResource {
+    String(XmlString),
+    Plurals(XmlPlurals),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct XmlString {
+    #[serde(rename = "@name")]
+    pub name: String,
+
+    #[serde(rename = "@translatable", default, skip_serializing_if = "Option::is_none")]
+    pub translatable: Option<String>,
+
+    #[serde(rename = "$text")]
+    pub value: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct XmlPlurals {
+    #[serde(rename = "@name")]
+    pub name: String,
+
+    #[serde(rename = "item")]
+    pub items: Vec<XmlPluralItem>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct XmlPluralItem {
+    #[serde(rename = "@quantity")]
+    pub quantity: String,
+
+    #[serde(rename = "$text")]
+    pub value: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct AndroidString {
@@ -43,44 +80,57 @@ impl AndroidResources {
     }
 
     pub fn from_xml(xml_content: &str) -> Result<Self> {
-        let mut reader = Reader::from_str(xml_content);
-        reader.trim_text(true);
-
+        // Extract comments using regex before serde parsing
+        let comments = extract_comments_from_xml(xml_content)?;
+        
+        // Deserialize the main structure using pure serde
+        let xml_resources: XmlResources = quick_xml::de::from_str(xml_content)?;
+        
         let mut resources = AndroidResources::new();
-        let mut current_comment = None;
-        let mut buf = Vec::new();
-
-        loop {
-            match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) => {
-                    match e.name().as_ref() {
-                        XML_STRING => {
-                            let string_item = parse_string_element(&mut reader, e, &current_comment)?;
-                            resources.strings.push(string_item);
-                            current_comment = None;
-                        }
-                        XML_PLURALS => {
-                            let plural_item = parse_plurals_element(&mut reader, e, &current_comment)?;
-                            resources.plurals.push(plural_item);
-                            current_comment = None;
-                        }
-                        _ => {}
+        
+        // Process each resource item
+        for (index, item) in xml_resources.items.iter().enumerate() {
+            let comment = comments.get(&index).cloned();
+            
+            match item {
+                XmlResource::String(xml_string) => {
+                    let variable_mapping = parse_variable_mapping(&comment)?;
+                    let translatable = xml_string.translatable.as_ref()
+                        .map(|t| t == "true");
+                    
+                    resources.strings.push(AndroidString {
+                        name: xml_string.name.clone(),
+                        value: xml_string.value.clone(),
+                        translatable,
+                        comment,
+                        variable_mapping,
+                    });
+                }
+                XmlResource::Plurals(xml_plurals) => {
+                    let variable_mapping = parse_variable_mapping(&comment)?;
+                    let mut items = HashMap::new();
+                    
+                    for item in &xml_plurals.items {
+                        items.insert(item.quantity.clone(), item.value.clone());
                     }
+                    
+                    resources.plurals.push(AndroidPlural {
+                        name: xml_plurals.name.clone(),
+                        items,
+                        comment,
+                        variable_mapping,
+                    });
                 }
-                Ok(Event::Comment(comment)) => {
-                    current_comment = Some(String::from_utf8_lossy(&comment).trim().to_string());
-                }
-                Ok(Event::Eof) => break,
-                Err(e) => return Err(e.into()),
-                _ => {}
             }
-            buf.clear();
         }
 
         Ok(resources)
     }
 
+    // `serde` does not parse / write comments; use `quick_xml` for writing
     pub fn to_xml(&self) -> Result<String> {
+        use quick_xml::{events::Event, Writer};
+        
         let mut writer = Writer::new_with_indent(Vec::new(), b' ', 2);
         
         // Write XML declaration
@@ -89,12 +139,14 @@ impl AndroidResources {
         // Start resources element
         writer.write_event(Event::Start(quick_xml::events::BytesStart::new("resources")))?;
 
-        // Write strings and plurals
+        // Write strings with comments
         for string in &self.strings {
-            write_string_to_xml(&mut writer, string)?;
+            write_string_with_comment(&mut writer, string)?;
         }
+        
+        // Write plural strings with comments
         for plural in &self.plurals {
-            write_plural_to_xml(&mut writer, plural)?;
+            write_plural_with_comment(&mut writer, plural)?;
         }
 
         // End resources element
@@ -104,101 +156,111 @@ impl AndroidResources {
     }
 }
 
-// Helper function to extract attribute value by name
-fn get_attribute_value(element: &quick_xml::events::BytesStart, attr_name: &[u8]) -> Option<String> {
-    element.attributes()
-        .filter_map(|attr| attr.ok())
-        .find(|attr| attr.key.as_ref() == attr_name)
-        .map(|attr| String::from_utf8_lossy(&attr.value).to_string())
+// Write a string element with its comment using the library's proper comment support
+fn write_string_with_comment(writer: &mut quick_xml::Writer<Vec<u8>>, string: &AndroidString) -> Result<()> {
+    use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
+    
+    // Write comment if present using the library's Event::Comment
+    if let Some(comment) = &string.comment {
+        let formatted_comment = format_comment_for_xml(comment);
+        writer.write_event(Event::Comment(BytesText::new(&formatted_comment)))?;
+    }
+
+    // Create string element with attributes
+    let mut elem = BytesStart::new("string");
+    elem.push_attribute(("name", string.name.as_str()));
+    
+    // Only add translatable attribute when explicitly set to false
+    if let Some(false) = string.translatable {
+        elem.push_attribute(("translatable", "false"));
+    }
+
+    writer.write_event(Event::Start(elem))?;
+    writer.write_event(Event::Text(BytesText::new(&string.value)))?;
+    writer.write_event(Event::End(BytesEnd::new("string")))?;
+
+    Ok(())
 }
 
-// Helper function to read text content until end tag
-fn read_text_content(reader: &mut Reader<&[u8]>, end_tag: &[u8]) -> Result<String> {
+// Write a plurals element with its comment using the library's proper comment support
+fn write_plural_with_comment(writer: &mut quick_xml::Writer<Vec<u8>>, plural: &AndroidPlural) -> Result<()> {
+    use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
+    
+    // Write comment if present using the library's Event::Comment
+    if let Some(comment) = &plural.comment {
+        let formatted_comment = format_comment_for_xml(comment);
+        writer.write_event(Event::Comment(BytesText::new(&formatted_comment)))?;
+    }
+
+    // Create plurals element
+    let mut elem = BytesStart::new("plurals");
+    elem.push_attribute(("name", plural.name.as_str()));
+
+    writer.write_event(Event::Start(elem))?;
+
+    // Write items in consistent order
+    let quantities = ["zero", "one", "two", "few", "many", "other"];
+    for quantity in &quantities {
+        if let Some(value) = plural.items.get(*quantity) {
+            let mut item_elem = BytesStart::new("item");
+            item_elem.push_attribute(("quantity", *quantity));
+            
+            writer.write_event(Event::Start(item_elem))?;
+            writer.write_event(Event::Text(BytesText::new(value)))?;
+            writer.write_event(Event::End(BytesEnd::new("item")))?;
+        }
+    }
+
+    writer.write_event(Event::End(BytesEnd::new("plurals")))?;
+
+    Ok(())
+}
+
+// Format a comment for XML output with proper spacing and indentation
+fn format_comment_for_xml(comment: &str) -> String {
+    // Add space at start, replace newlines with newline + indentation, add space at end
+    format!(" {} ", comment.replace('\n', "\n     "))
+}
+
+// Extract comments from XML using proper XML parsing and associate them with resource elements
+// `serde` does not parse comments; use `quick_xml` event-based parsing to extract the comments
+fn extract_comments_from_xml(xml_content: &str) -> Result<HashMap<usize, String>> {
+    use quick_xml::{Reader, events::Event};
+    
+    fn is_resource_element(name: &[u8]) -> bool {
+        matches!(name, b"string" | b"plurals")
+    }
+    
+    let mut comments = HashMap::new();
+    let mut reader = Reader::from_str(xml_content);
     let mut buf = Vec::new();
-    let mut content = String::new();
+    let mut pending_comment = None;
+    let mut resource_index = 0;
     
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Text(text)) => {
-                content.push_str(&String::from_utf8_lossy(&text));
+            Ok(Event::Comment(comment)) => {
+                let comment_text = String::from_utf8_lossy(&comment);
+                // Only trim leading/trailing whitespace, preserve internal structure
+                let trimmed = comment_text.trim();
+                if !trimmed.is_empty() {
+                    pending_comment = Some(trimmed.to_string());
+                }
             }
-            Ok(Event::End(ref e)) if e.name().as_ref() == end_tag => break,
-            Ok(_) => {}
-            Err(e) => return Err(e.into()),
+            Ok(Event::Start(element)) if is_resource_element(element.name().as_ref()) => {
+                if let Some(comment) = pending_comment.take() {
+                    comments.insert(resource_index, comment);
+                }
+                resource_index += 1;
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(anyhow::anyhow!("Error parsing XML for comments: {:?}", e)),
+            _ => {} // Ignore other events
         }
         buf.clear();
     }
     
-    Ok(content)
-}
-
-fn parse_string_element(
-    reader: &mut Reader<&[u8]>,
-    start_element: &quick_xml::events::BytesStart,
-    comment: &Option<String>,
-) -> Result<AndroidString> {
-    let name = get_attribute_value(start_element, ATTR_NAME)
-        .unwrap_or_default();
-    
-    let translatable = get_attribute_value(start_element, ATTR_TRANSLATABLE)
-        .map(|val| val == "true");
-
-    let value = read_text_content(reader, XML_STRING)?;
-    let variable_mapping = parse_variable_mapping(comment)?;
-
-    Ok(AndroidString {
-        name,
-        value,
-        translatable,
-        comment: comment.clone(),
-        variable_mapping,
-    })
-}
-
-fn parse_plurals_element(
-    reader: &mut Reader<&[u8]>,
-    start_element: &quick_xml::events::BytesStart,
-    comment: &Option<String>,
-) -> Result<AndroidPlural> {
-    let name = get_attribute_value(start_element, ATTR_NAME)
-        .unwrap_or_default();
-
-    let mut items = HashMap::new();
-    let mut buf = Vec::new();
-
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) if e.name().as_ref() == XML_ITEM => {
-                let (quantity, value) = parse_plural_item(reader, e)?;
-                items.insert(quantity, value);
-            }
-            Ok(Event::End(ref e)) if e.name().as_ref() == XML_PLURALS => break,
-            Ok(_) => {}
-            Err(e) => return Err(e.into()),
-        }
-        buf.clear();
-    }
-
-    let variable_mapping = parse_variable_mapping(comment)?;
-
-    Ok(AndroidPlural {
-        name,
-        items,
-        comment: comment.clone(),
-        variable_mapping,
-    })
-}
-
-fn parse_plural_item(
-    reader: &mut Reader<&[u8]>,
-    start_element: &quick_xml::events::BytesStart,
-) -> Result<(String, String)> {
-    let quantity = get_attribute_value(start_element, ATTR_QUANTITY)
-        .unwrap_or_default();
-
-    let value = read_text_content(reader, XML_ITEM)?;
-
-    Ok((quantity, value))
+    Ok(comments)
 }
 
 fn parse_variable_mapping(comment: &Option<String>) -> Result<HashMap<String, String>> {
@@ -216,57 +278,6 @@ fn parse_variable_mapping(comment: &Option<String>) -> Result<HashMap<String, St
     }
     
     Ok(mapping)
-}
-
-fn write_string_to_xml(writer: &mut Writer<Vec<u8>>, string: &AndroidString) -> Result<()> {
-    // Write comment if present
-    if let Some(comment) = &string.comment {
-        writer.write_event(Event::Comment(quick_xml::events::BytesText::new(comment)))?;
-    }
-
-    // Create string element with attributes
-    let mut elem = quick_xml::events::BytesStart::new("string");
-    elem.push_attribute(("name", string.name.as_str()));
-    
-    if let Some(false) = string.translatable {
-        elem.push_attribute(("translatable", "false"));
-    }
-
-    writer.write_event(Event::Start(elem))?;
-    writer.write_event(Event::Text(quick_xml::events::BytesText::new(&string.value)))?;
-    writer.write_event(Event::End(quick_xml::events::BytesEnd::new("string")))?;
-
-    Ok(())
-}
-
-fn write_plural_to_xml(writer: &mut Writer<Vec<u8>>, plural: &AndroidPlural) -> Result<()> {
-    // Write comment if present
-    if let Some(comment) = &plural.comment {
-        writer.write_event(Event::Comment(quick_xml::events::BytesText::new(comment)))?;
-    }
-
-    // Create plurals element
-    let mut elem = quick_xml::events::BytesStart::new("plurals");
-    elem.push_attribute(("name", plural.name.as_str()));
-
-    writer.write_event(Event::Start(elem))?;
-
-    // Write items in a consistent order
-    let quantities = ["zero", "one", "two", "few", "many", "other"];
-    for quantity in &quantities {
-        if let Some(value) = plural.items.get(*quantity) {
-            let mut item_elem = quick_xml::events::BytesStart::new("item");
-            item_elem.push_attribute(("quantity", *quantity));
-            
-            writer.write_event(Event::Start(item_elem))?;
-            writer.write_event(Event::Text(quick_xml::events::BytesText::new(value)))?;
-            writer.write_event(Event::End(quick_xml::events::BytesEnd::new("item")))?;
-        }
-    }
-
-    writer.write_event(Event::End(quick_xml::events::BytesEnd::new("plurals")))?;
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -359,7 +370,7 @@ mod tests {
 
         let xml = resources.to_xml().unwrap();
         assert!(xml.contains(r#"<string name="greeting">Hello %s</string>"#));
-        assert!(xml.contains("<!--%s = {$name}-->"));
+        assert!(xml.contains("<!-- %s = {$name} -->"));
     }
 
     #[test]
@@ -371,5 +382,78 @@ mod tests {
 
         let resources = AndroidResources::from_xml(xml).unwrap();
         assert_eq!(resources.strings[0].value, r"\u0024%1$.2f/week");
+    }
+
+    #[test]
+    fn test_comment_extraction() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- This is a general comment -->
+    
+    <!-- Variable mapping: %s = {$name} -->
+    <string name="greeting">Hello %s</string>
+    
+    <!-- No variable mapping needed -->
+    <string name="simple">Simple text</string>
+    
+    <!-- Multi-line comment
+         with variable mapping: %d = {$count} -->
+    <plurals name="items">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+    
+    <!-- Some comment not associated with anything -->
+</resources>"#;
+
+        let resources = AndroidResources::from_xml(xml).unwrap();
+        
+        // Check that we properly extracted 2 strings and 1 plural
+        assert_eq!(resources.strings.len(), 2);
+        assert_eq!(resources.plurals.len(), 1);
+        
+        // Check comment association
+        assert!(resources.strings[0].comment.is_some());
+        assert_eq!(resources.strings[0].comment.as_ref().unwrap(), "Variable mapping: %s = {$name}");
+        
+        assert!(resources.strings[1].comment.is_some());
+        assert_eq!(resources.strings[1].comment.as_ref().unwrap(), "No variable mapping needed");
+        
+        assert!(resources.plurals[0].comment.is_some());
+        assert!(resources.plurals[0].comment.as_ref().unwrap().contains("Multi-line comment"));
+        
+        // Check variable mapping was extracted correctly
+        assert_eq!(resources.strings[0].variable_mapping.get("%s"), Some(&"name".to_string()));
+        assert_eq!(resources.plurals[0].variable_mapping.get("%d"), Some(&"count".to_string()));
+    }
+
+    #[test]
+    fn test_multiline_comment_formatting() {
+        let mut resources = AndroidResources::new();
+        
+        // Create a resource with a multiline comment
+        resources.strings.push(AndroidString {
+            name: "long-description".to_string(),
+            value: "This is a longer description".to_string(),
+            translatable: None,
+            comment: Some("Multi-line string with indentation\nwith a multi-line comment\nas comments also are being parsed".to_string()),
+            variable_mapping: HashMap::new(),
+        });
+
+        let xml = resources.to_xml().unwrap();
+        
+        // Check that the comment has proper spacing and indentation
+        assert!(xml.contains("<!-- Multi-line string with indentation"));
+        assert!(xml.contains("     with a multi-line comment"));
+        assert!(xml.contains("     as comments also are being parsed -->"));
+        
+        // Verify it can round-trip correctly
+        let parsed_resources = AndroidResources::from_xml(&xml).unwrap();
+        assert_eq!(parsed_resources.strings.len(), 1);
+        assert!(parsed_resources.strings[0].comment.is_some());
+        let comment = parsed_resources.strings[0].comment.as_ref().unwrap();
+        assert!(comment.contains("Multi-line string with indentation"));
+        assert!(comment.contains("with a multi-line comment"));
+        assert!(comment.contains("as comments also are being parsed"));
     }
 }
