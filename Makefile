@@ -121,7 +121,7 @@ unit-test:
 	$(rust_docker_run) cargo test -- --nocapture
 
 # Test CLI with conversions for both Android and PO formats
-cli-test: build
+cli-test:
 	@./scripts/cli-test.sh
 
 # Clean up build artifacts and temporary files
