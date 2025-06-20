@@ -10,6 +10,26 @@ module FluentTools
     BINARY_NAME = 'fluent-tools'
     REPO_NAME = 'fluent-rust-tools'
 
+    # Supported platforms for cross-compilation
+    SUPPORTED_PLATFORMS = %w[
+      x86_64-linux
+      arm64-linux
+      x86_64-darwin
+      arm64-darwin
+      x86_64-windows
+      arm64-windows
+    ].freeze
+
+    # Platform to Rust target mapping
+    PLATFORM_RUST_TARGETS = {
+      'x86_64-linux' => 'x86_64-unknown-linux-gnu',
+      'arm64-linux' => 'aarch64-unknown-linux-gnu',
+      'x86_64-darwin' => 'x86_64-apple-darwin',
+      'arm64-darwin' => 'aarch64-apple-darwin',
+      'x86_64-windows' => 'x86_64-pc-windows-gnu',
+      'arm64-windows' => 'aarch64-pc-windows-gnullvm'
+    }.freeze
+
     # Platform detection using RbConfig to identify the current system
     # Returns a string in the format "{architecture}-{os}" (e.g., "arm64-darwin")
     # Returns nil if the platform is not supported
@@ -59,6 +79,19 @@ module FluentTools
     # Get binary extension for current platform
     def self.binary_extension(platform = nil)
       windows_platform?(platform) ? '.exe' : ''
+    end
+
+    # Validate that a platform is supported
+    def self.validate_platform!(platform)
+      unless SUPPORTED_PLATFORMS.include?(platform)
+        raise "Invalid platform: #{platform}. Valid platforms: #{SUPPORTED_PLATFORMS.join(', ')}"
+      end
+    end
+
+    # Convert platform name to Rust target triple
+    def self.platform_to_rust_target(platform)
+      validate_platform!(platform)
+      PLATFORM_RUST_TARGETS[platform]
     end
 
     # Logger mixin to provide consistent logging across tools

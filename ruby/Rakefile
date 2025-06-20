@@ -11,16 +11,17 @@ RuboCop::RakeTask.new
 
 # Tasks
 
-desc 'Build Rust binary and prepare for gem (mode: docker|native, default: docker)'
-task :build_rust, [:mode] do |_t, args|
-  mode = args[:mode] || 'docker'
+desc 'Build Rust binary and prepare for gem (platform: PLATFORM, defaults to current platform)'
+task :build_rust, [:platform] do |_t, args|
+  platform = args[:platform] || FluentTools::Utils.detect_platform
 
   # Build the Rust binary
-  build_rust_binary(mode)
+  build_rust_binary(platform)
 
   # Get platform-specific paths
-  paths = get_binary_paths
-  puts "🔍 Detected platform: #{paths[:platform]}"
+  rust_target = FluentTools::Utils.platform_to_rust_target(platform)
+  paths = get_binary_paths(platform, rust_target)
+  puts "🔍 Target platform: #{paths[:platform]}"
 
   # Copy binary for gem use
   copy_binary_for_gem(paths)
@@ -28,15 +29,16 @@ task :build_rust, [:mode] do |_t, args|
   puts '✅ Rust binary built and prepared for gem'
 end
 
-desc 'Build release binary for current platform and upload to GitHub releases (mode: docker|native, default: docker)'
-task :release_binary, [:mode] do |_t, args|
-  mode = args[:mode] || 'docker'
+desc 'Build release binary for platform and upload to GitHub releases (platform: PLATFORM, defaults to current platform)'
+task :release_binary, [:platform] do |_t, args|
+  platform = args[:platform] || FluentTools::Utils.detect_platform
 
-  build_rust_binary(mode)
+  build_rust_binary(platform)
 
   # Get platform-specific paths
-  paths = get_binary_paths
-  puts "🔍 Detected platform: #{paths[:platform]}"
+  rust_target = FluentTools::Utils.platform_to_rust_target(platform)
+  paths = get_binary_paths(platform, rust_target)
+  puts "🔍 Target platform: #{paths[:platform]}"
 
   # Prepare release binary
   binary_file = prepare_release_binary(paths)
@@ -56,6 +58,19 @@ task :release_binary, [:mode] do |_t, args|
   FileUtils.rm(binary_file)
 end
 
+desc 'Build binaries for all supported platforms and upload to GitHub releases'
+task :release_all_platforms do
+  require_project_deps
+
+  FluentTools::Utils::SUPPORTED_PLATFORMS.each do |platform|
+    puts "\n🔨 Building and releasing for #{platform}..."
+    Rake::Task[:release_binary].reenable
+    Rake::Task[:release_binary].invoke(platform)
+  end
+
+  puts "\n🎉 All platform binaries built and uploaded successfully!"
+end
+
 desc 'Clean all build artifacts'
 task :clean do
   FileUtils.rm_rf(%w[bin pkg])
@@ -73,36 +88,29 @@ def require_project_deps
   require_relative 'lib/fluent_tools/utils'
 end
 
-def translate_build_mode(mode)
-  case mode&.to_s&.downcase
-  when 'native'
-    'build_native'
-  when 'docker', nil, ''
-    'build'
-  else
-    raise "Invalid build mode: #{mode}. Use 'docker' or 'native'"
-  end
+def build_rust_binary(platform)
+  FluentTools::Utils.validate_platform!(platform)
+  puts "🔨 Building Rust binary for platform: #{platform}"
+
+  system("cd #{project_root} && make build_platform PLATFORM=#{platform}") || raise('Failed to build Rust binary')
 end
 
-def build_rust_binary(mode = 'docker')
-  target = translate_build_mode(mode)
-  puts "🔨 Building Rust binary using mode: #{mode} (make #{target})"
-  system("cd #{project_root} && make #{target}") || raise('Failed to build Rust binary')
-end
 
-def get_binary_paths(platform = nil)
+def get_binary_paths(platform, target_dir)
   require_project_deps
 
-  platform ||= FluentTools::Utils.detect_platform
-  raise 'Unsupported platform' unless platform
+  raise 'Platform is required' unless platform
+  raise 'Target directory is required' unless target_dir
 
   binary_extension = FluentTools::Utils.binary_extension(platform)
   binary_name = FluentTools::Utils::BINARY_NAME
 
+  source_path = File.expand_path("../target/#{target_dir}/release/#{binary_name}#{binary_extension}", __dir__)
+
   {
     platform: platform,
     extension: binary_extension,
-    source_path: File.expand_path("../target/release/#{binary_name}#{binary_extension}", __dir__),
+    source_path: source_path,
     gem_binary_path: "bin/#{binary_name}#{binary_extension}",
     release_binary_name: FluentTools::Utils.binary_name_for_platform(platform)
   }
