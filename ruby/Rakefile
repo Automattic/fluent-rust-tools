@@ -95,7 +95,6 @@ def build_rust_binary(platform)
   system("cd #{project_root} && make build_platform PLATFORM=#{platform}") || raise('Failed to build Rust binary')
 end
 
-
 def get_binary_paths(platform, target_dir)
   require_project_deps
 

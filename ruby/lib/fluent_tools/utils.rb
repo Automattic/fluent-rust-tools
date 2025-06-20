@@ -83,9 +83,9 @@ module FluentTools
 
     # Validate that a platform is supported
     def self.validate_platform!(platform)
-      unless SUPPORTED_PLATFORMS.include?(platform)
-        raise "Invalid platform: #{platform}. Valid platforms: #{SUPPORTED_PLATFORMS.join(', ')}"
-      end
+      return if SUPPORTED_PLATFORMS.include?(platform)
+
+      raise "Invalid platform: #{platform}. Valid platforms: #{SUPPORTED_PLATFORMS.join(', ')}"
     end
 
     # Convert platform name to Rust target triple

@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # Docker configuration
 RUST_DOCKER_CONTAINER="public.ecr.aws/docker/library/rust:1.86.0"
 DOCKER_CONTAINER_REPO_DIR="/app"
-RUST_DOCKER_RUN="docker run --rm -v $(PWD):${DOCKER_CONTAINER_REPO_DIR} -w ${DOCKER_CONTAINER_REPO_DIR} -e CARGO_HOME=${DOCKER_CONTAINER_REPO_DIR}/.cargo ${RUST_DOCKER_CONTAINER}"
+RUST_DOCKER_RUN="docker run --rm -v $(pwd):${DOCKER_CONTAINER_REPO_DIR} -w ${DOCKER_CONTAINER_REPO_DIR} -e CARGO_HOME=${DOCKER_CONTAINER_REPO_DIR}/.cargo ${RUST_DOCKER_CONTAINER}"
 
 # Test files
 SAMPLE_SOURCE="tests/data/sample_source.ftl"
