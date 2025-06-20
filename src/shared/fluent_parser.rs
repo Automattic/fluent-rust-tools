@@ -922,4 +922,48 @@ items = {$count ->
             // Note: The built-in serializer may normalize formatting, but semantic content should be the same
         }
     }
+
+    #[test]
+    fn test_fluent_syntax_library_multiline_formatting_behavior() {
+        // Test to confirm that the fluent_syntax library itself changes multiline formatting
+        // using ONLY the fluent_syntax library functions directly
+
+        // Original format: text starts on same line as key
+        let original_multiline_ftl = r#"long-description = This is a longer description that spans
+    multiple lines to test how multi-line content
+    is preserved during the round trip conversion
+    process."#;
+
+        // Parse using fluent_syntax library directly
+        let parsed_result = fluent_syntax::parser::parse(original_multiline_ftl);
+        let parsed_resource = match parsed_result {
+            Ok(resource) => resource,
+            Err((_resource, _errors)) => panic!("Failed to parse original_multiline_ftl"),
+        };
+
+        // Serialize back using fluent_syntax library directly
+        let serialized_output = fluent_syntax::serializer::serialize(&parsed_resource);
+
+        // The expected output is that the value is moved to a new line and indented
+        let expected_serialized = "\
+long-description =
+    This is a longer description that spans
+    multiple lines to test how multi-line content
+    is preserved during the round trip conversion
+    process.
+";
+
+        // Assert that the output matches the expected normalized format starting with a new line 
+        assert_eq!(serialized_output, expected_serialized);
+
+        // Test that semantic content is preserved regardless of formatting
+        let reparsed_result = fluent_syntax::parser::parse(serialized_output.as_str());
+        let reparsed_resource = match reparsed_result {
+            Ok(resource) => resource,
+            Err((resource, _errors)) => resource,
+        };
+
+        // Both internal structures are identical
+        assert_eq!(parsed_resource, reparsed_resource);
+    }
 }
