@@ -59,10 +59,8 @@ steps:
           .buildkite/release-binary.sh x86_64-linux
           .buildkite/release-binary.sh arm64-linux
         plugins: [$CI_TOOLKIT]
-        agents:
-          queue: android
 
-      - label: ":apple: macOS Binaries (x86_64 + ARM64)"
+      - label: ":mac: macOS Binaries (x86_64 + ARM64)"
         command: |
           echo "--- :package: Building macOS binaries natively"
           echo "--- :rust: Installing Rust"
