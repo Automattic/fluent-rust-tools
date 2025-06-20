@@ -24,6 +24,9 @@ steps:
         command: |
           echo "--- :rust: Run Tests"
           make test
+        notify:
+          - github_commit_status:
+              context: "Tests"
 
   #################
   # Lint
@@ -36,6 +39,9 @@ steps:
       manual:
         permit_on_passed: true
     plugins: [*docker_plugin]
+    notify:
+      - github_commit_status:
+          context: "Ruby Lint"
 
   #################
   # Release Binaries
