@@ -58,19 +58,6 @@ task :build_and_create_github_release, [:platform] do |_t, args|
   FileUtils.rm(binary_file)
 end
 
-desc 'Build binaries for all supported platforms and upload to GitHub releases'
-task :release_all_platforms do
-  require_project_deps
-
-  FluentTools::Utils::SUPPORTED_PLATFORMS.each do |platform|
-    puts "\n🔨 Building and releasing for #{platform}..."
-    Rake::Task[:build_and_create_github_release].reenable
-    Rake::Task[:build_and_create_github_release].invoke(platform)
-  end
-
-  puts "\n🎉 All platform binaries built and uploaded successfully!"
-end
-
 desc 'Clean all build artifacts'
 task :clean do
   FileUtils.rm_rf(%w[bin pkg])

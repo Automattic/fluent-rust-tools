@@ -10,16 +10,6 @@ module FluentTools
     BINARY_NAME = 'fluent-tools'
     REPO_NAME = 'fluent-rust-tools'
 
-    # Supported platforms for cross-compilation
-    SUPPORTED_PLATFORMS = %w[
-      x86_64-linux
-      arm64-linux
-      x86_64-darwin
-      arm64-darwin
-      x86_64-windows
-      arm64-windows
-    ].freeze
-
     # Platform to Rust target mapping
     PLATFORM_RUST_TARGETS = {
       'x86_64-linux' => 'x86_64-unknown-linux-gnu',
@@ -80,9 +70,9 @@ module FluentTools
 
     # Validate that a platform is supported
     def self.validate_platform!(platform)
-      return if SUPPORTED_PLATFORMS.include?(platform)
+      return if PLATFORM_RUST_TARGETS.key?(platform)
 
-      raise "Invalid platform: #{platform}. Valid platforms: #{SUPPORTED_PLATFORMS.join(', ')}"
+      raise "Invalid platform: #{platform}. Valid platforms: #{PLATFORM_RUST_TARGETS.keys.join(', ')}"
     end
 
     # Convert platform name to Rust target triple
