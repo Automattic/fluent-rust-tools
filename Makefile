@@ -167,5 +167,5 @@ help:
 	@echo ""
 	@echo "💎 For Ruby gem development, use:"
 	@echo "  cd ruby && bundle exec rake build_rust[PLATFORM]"
-	@echo "  cd ruby && bundle exec rake release_binary[PLATFORM]"
+	@echo "  cd ruby && bundle exec rake build_and_create_github_release[PLATFORM]"
 	@echo "  cd ruby && bundle exec rake release_all_platforms"

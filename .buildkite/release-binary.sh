@@ -12,4 +12,4 @@ echo "--- :hammer: Building Release Binary for $PLATFORM"
 
 cd ruby
 install_gems
-bundle exec rake "release_binary[$PLATFORM]"
+bundle exec rake "build_and_create_github_release[$PLATFORM]"
