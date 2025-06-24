@@ -63,11 +63,8 @@ module FluentTools
     # Generate the expected binary name for a given platform
     # Adds .exe extension for Windows platforms
     def self.binary_name_for_platform(platform)
-      if platform.include?('windows')
-        "#{BINARY_NAME}-#{platform}.exe"
-      else
-        "#{BINARY_NAME}-#{platform}"
-      end
+      extension = binary_extension(platform)
+      "#{BINARY_NAME}-#{platform}#{extension}"
     end
 
     # Check if the current platform is Windows
