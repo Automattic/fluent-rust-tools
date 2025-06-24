@@ -14,7 +14,7 @@ module FluentTools
 
     # Convert Fluent file to Android XML
     def fluent_to_android(input_path, output_path)
-      validate_input_file(input_path)
+      validate_input_file!(input_path)
       ensure_output_directory(output_path)
 
       cmd = [@binary_path, 'android', 'from-fluent', '-i', input_path, '-o', output_path]
@@ -23,7 +23,7 @@ module FluentTools
 
     # Convert Android XML to Fluent file
     def android_to_fluent(input_path, output_path, original_fluent: nil)
-      validate_input_file(input_path)
+      validate_input_file!(input_path)
       ensure_output_directory(output_path)
 
       cmd = [@binary_path, 'android', 'to-fluent', '-i', input_path, '-o', output_path]
@@ -34,7 +34,7 @@ module FluentTools
 
     # Convert Fluent file to PO
     def fluent_to_po(input_path, output_path, locale: 'en-US')
-      validate_input_file(input_path)
+      validate_input_file!(input_path)
       ensure_output_directory(output_path)
 
       cmd = [@binary_path, 'po', 'from-fluent', '-i', input_path, '-o', output_path, '-l', locale]
@@ -43,7 +43,7 @@ module FluentTools
 
     # Convert PO file to Fluent
     def po_to_fluent(input_path, output_path)
-      validate_input_file(input_path)
+      validate_input_file!(input_path)
       ensure_output_directory(output_path)
 
       cmd = [@binary_path, 'po', 'to-fluent', '-i', input_path, '-o', output_path]
@@ -91,7 +91,7 @@ module FluentTools
       nil
     end
 
-    def validate_input_file(path)
+    def validate_input_file!(path)
       return if File.exist?(path)
 
       raise Error, "Input file does not exist: #{path}"
