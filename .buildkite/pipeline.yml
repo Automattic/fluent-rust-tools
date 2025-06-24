@@ -41,7 +41,7 @@ steps:
     plugins: [*docker_plugin]
     notify:
       - github_commit_status:
-          context: "Ruby Lint"
+          context: "Ruby Lint and Tests"
 
   #################
   # Release Binaries
