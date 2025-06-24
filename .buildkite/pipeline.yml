@@ -31,10 +31,10 @@ steps:
   #################
   # Lint
   #################
-  - label: ":rubocop: Ruby Lint (Rubocop)"
+  - label: ":ruby: Rubocop + RSpec"
     # for now, running in the default queue to avoid the need of a Gemfile the root directory
-    command: cd ruby && bundle install && bundle exec rubocop
-    key: rubocop
+    command: cd ruby && bundle install && bundle exec rubocop && bundle exec rspec
+    key: ruby-lint-and-tests
     retry:
       manual:
         permit_on_passed: true
@@ -51,7 +51,7 @@ steps:
     if: build.tag != null
     depends_on:
       - tests
-      - rubocop
+      - ruby-lint-and-tests
     steps:
       - label: ":linux: Linux Binaries (x86_64 + ARM64)"
         command: |
