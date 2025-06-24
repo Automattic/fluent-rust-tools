@@ -13,8 +13,8 @@ module FluentTools
       OUTPUT: Path to the output Android XML file
     DESC
     def from_fluent(input, output)
-      converter = Converter.new
-      converter.fluent_to_android(input, output)
+      command_executor = CommandExecutor.new
+      command_executor.fluent_to_android(input, output)
       puts "Successfully converted #{input} to #{output}"
     rescue Error => e
       puts "Error: #{e.message}"
@@ -30,8 +30,8 @@ module FluentTools
     DESC
     option :original_fluent, aliases: '-o', desc: 'Original Fluent file for variable mapping recovery'
     def to_fluent(input, output)
-      converter = Converter.new
-      converter.android_to_fluent(input, output, original_fluent: options[:original_fluent])
+      command_executor = CommandExecutor.new
+      command_executor.android_to_fluent(input, output, original_fluent: options[:original_fluent])
 
       message = "Successfully converted #{input} to #{output}"
       message += " using original Fluent file #{options[:original_fluent]}" if options[:original_fluent]
@@ -53,8 +53,8 @@ module FluentTools
     DESC
     option :locale, aliases: '-l', default: 'en-US', desc: 'Source locale (e.g., en-US)'
     def from_fluent(input, output)
-      converter = Converter.new
-      converter.fluent_to_po(input, output, locale: options[:locale])
+      command_executor = CommandExecutor.new
+      command_executor.fluent_to_po(input, output, locale: options[:locale])
       puts "Successfully converted #{input} to #{output}"
     rescue Error => e
       puts "Error: #{e.message}"
@@ -69,8 +69,8 @@ module FluentTools
       OUTPUT: Path to the output Fluent (.ftl) file
     DESC
     def to_fluent(input, output)
-      converter = Converter.new
-      converter.po_to_fluent(input, output)
+      command_executor = CommandExecutor.new
+      command_executor.po_to_fluent(input, output)
       puts "Successfully converted #{input} to #{output}"
     rescue Error => e
       puts "Error: #{e.message}"

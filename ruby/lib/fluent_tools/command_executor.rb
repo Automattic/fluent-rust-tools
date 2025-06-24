@@ -5,9 +5,9 @@ require 'pathname'
 require 'fileutils'
 
 module FluentTools
-  # Core converter class that interfaces with the fluent-tools Rust binary
+  # Core command executor class that interfaces with the fluent-tools Rust binary
   # Handles file validation, output directory creation, and command execution
-  class Converter
+  class CommandExecutor
     def initialize
       @binary_path = find_binary_path
     end
