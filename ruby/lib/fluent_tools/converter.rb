@@ -77,8 +77,7 @@ module FluentTools
     end
 
     def development_context?
-      @project_root ||= find_project_root
-      !@project_root.nil?
+      !project_root.nil?
     end
 
     def project_root
