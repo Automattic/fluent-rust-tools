@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::android::android_format::{AndroidResources, AndroidString, AndroidPlural};
-use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement, format_string_value_as_multiline_fluent_text};
+use crate::shared::fluent_data::{FluentResource, FluentMessage, FluentPattern, FluentElement, format_string_value_as_multiline_fluent_text};
 
 // Constants
 const COUNT_PLACEHOLDER: &str = "%d";
@@ -669,7 +669,7 @@ item_count = {$count ->
 
     #[test]
     fn test_convert_simple_pattern_to_android() {
-        use crate::shared::fluent_parser::{FluentMessage, FluentPattern, FluentElement};
+        use crate::shared::fluent_data::{FluentMessage, FluentPattern, FluentElement};
         
         let message = FluentMessage {
             id: "greeting".to_string(),
@@ -741,7 +741,7 @@ item_count = {$count ->
 
     #[test]
     fn test_classify_pattern() {
-        use crate::shared::fluent_parser::{FluentPattern, FluentElement};
+        use crate::shared::fluent_data::{FluentPattern, FluentElement};
         
         // Simple pattern
         let simple_pattern = FluentPattern {
@@ -761,7 +761,7 @@ item_count = {$count ->
 
     #[test]
     fn test_positional_parameters_fluent_to_android() {
-        use crate::shared::fluent_parser::{FluentMessage, FluentPattern, FluentElement};
+        use crate::shared::fluent_data::{FluentMessage, FluentPattern, FluentElement};
         
         // Test with multiple variables to ensure all use positional parameters
         let message = FluentMessage {
