@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::android::android_format::{AndroidResources, AndroidString, AndroidPlural};
-use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement, format_string_value_as_multiline_fluent_text};
+use crate::shared::fluent_data::{FluentResource, FluentMessage, FluentPattern, FluentElement, format_string_value_as_multiline_fluent_text};
 
 // Constants
 const COUNT_PLACEHOLDER: &str = "%d";
@@ -669,7 +669,7 @@ item_count = {$count ->
 
     #[test]
     fn test_convert_simple_pattern_to_android() {
-        use crate::shared::fluent_parser::{FluentMessage, FluentPattern, FluentElement};
+        use crate::shared::fluent_data::{FluentMessage, FluentPattern, FluentElement};
         
         let message = FluentMessage {
             id: "greeting".to_string(),
@@ -741,7 +741,7 @@ item_count = {$count ->
 
     #[test]
     fn test_classify_pattern() {
-        use crate::shared::fluent_parser::{FluentPattern, FluentElement};
+        use crate::shared::fluent_data::{FluentPattern, FluentElement};
         
         // Simple pattern
         let simple_pattern = FluentPattern {
@@ -761,7 +761,7 @@ item_count = {$count ->
 
     #[test]
     fn test_positional_parameters_fluent_to_android() {
-        use crate::shared::fluent_parser::{FluentMessage, FluentPattern, FluentElement};
+        use crate::shared::fluent_data::{FluentMessage, FluentPattern, FluentElement};
         
         // Test with multiple variables to ensure all use positional parameters
         let message = FluentMessage {
@@ -901,5 +901,34 @@ item_count = {$count ->
         let reparsed_resource = reparsed.unwrap();
         assert_eq!(reparsed_resource.messages.len(), 1);
         assert_eq!(reparsed_resource.messages[0].id, "test-multiline");
+    }
+
+    #[test]
+    fn test_plural_conversion_with_mixed_variables() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let output_path = temp_dir.path().join("output.xml");
+
+        // Fluent with plural selector variable and other variables
+        let fluent_content = r#"shared-photos = {$photoCount ->
+    [one] {$userName} added {$photoCount} new photo to {$album}.
+   *[other] {$userName} added {$photoCount} new photos to {$album}.
+}"#;
+        fs::write(&input_path, fluent_content).unwrap();
+
+        let result = fluent_to_android(&input_path, &output_path);
+        assert!(result.is_ok());
+
+        let xml_content = fs::read_to_string(&output_path).unwrap();
+        
+        // Verify the entire Android XML structure as a string
+        let expected_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <plurals name="shared-photos">
+    <item quantity="one">%1$s added %d new photo to %2$s.</item>
+    <item quantity="other">%1$s added %d new photos to %2$s.</item>
+  </plurals>
+</resources>"#;
+        assert_eq!(xml_content, expected_xml);
     }
 }

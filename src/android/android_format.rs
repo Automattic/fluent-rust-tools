@@ -91,10 +91,10 @@ impl AndroidResources {
         // Process each resource item
         for (index, item) in xml_resources.items.iter().enumerate() {
             let comment = comments.get(&index).cloned();
+            let variable_mapping = parse_variable_mapping(&comment)?;
             
             match item {
                 XmlResource::String(xml_string) => {
-                    let variable_mapping = parse_variable_mapping(&comment)?;
                     let translatable = xml_string.translatable.as_ref()
                         .map(|t| t == "true");
                     
@@ -107,7 +107,6 @@ impl AndroidResources {
                     });
                 }
                 XmlResource::Plurals(xml_plurals) => {
-                    let variable_mapping = parse_variable_mapping(&comment)?;
                     let mut items = HashMap::new();
                     
                     for item in &xml_plurals.items {
@@ -268,7 +267,8 @@ fn parse_variable_mapping(comment: &Option<String>) -> Result<HashMap<String, St
     
     if let Some(comment_text) = comment {
         // Parse patterns like "%s = {$message}" or "%1$d = {$num_downloads}"
-        let re = Regex::new(r"(%\d*\$?[sdif])\s*=\s*\{\$(\w+)\}").unwrap();
+        // The $ should only be present if a \d+ is also present
+        let re = Regex::new(r"(%(?:\d+\$)?[sdif])\s*=\s*\{\$(\w+)\}").unwrap();
         
         for captures in re.captures_iter(comment_text) {
             if let (Some(placeholder), Some(variable)) = (captures.get(1), captures.get(2)) {
@@ -351,6 +351,23 @@ mod tests {
         
         assert_eq!(mapping.get("%s"), Some(&"name".to_string()));
         assert_eq!(mapping.get("%1$d"), Some(&"count".to_string()));
+    }
+
+    #[test]
+    fn test_parse_variable_mapping_regex_edge_cases() {
+        // Test various Android placeholder formats
+        let comment = "%s = {$name}, %d = {$count}, %2$s = {$message}, %1$f = {$price}";
+        let mapping = parse_variable_mapping(&Some(comment.to_string())).unwrap();
+        
+        assert_eq!(mapping.get("%s"), Some(&"name".to_string()));
+        assert_eq!(mapping.get("%d"), Some(&"count".to_string()));
+        assert_eq!(mapping.get("%2$s"), Some(&"message".to_string()));
+        assert_eq!(mapping.get("%1$f"), Some(&"price".to_string()));
+        
+        // Test that invalid patterns are not matched
+        let invalid_comment = "%$ = {$invalid}, %abc = {$wrong}";
+        let invalid_mapping = parse_variable_mapping(&Some(invalid_comment.to_string())).unwrap();
+        assert!(invalid_mapping.is_empty());
     }
 
     #[test]
