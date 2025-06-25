@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::Path;
 use std::fs;
 
-use crate::shared::fluent_parser::{self};
+use crate::shared::fluent_data;
 use crate::po::po_format::{write_po_file, fluent_to_po_catalog, parse_po_file, po_catalog_to_fluent};
 
 pub fn fluent_to_po(input_path: &Path, output_path: &Path, locale: &str, original_language_input: Option<&Path>) -> Result<()> {
@@ -10,12 +10,12 @@ pub fn fluent_to_po(input_path: &Path, output_path: &Path, locale: &str, origina
     let fluent_content = fs::read_to_string(input_path)?;
     
     // Parse target Fluent
-    let fluent_resource = fluent_parser::parse_fluent(&fluent_content)?;
+    let fluent_resource = fluent_data::parse_fluent(&fluent_content)?;
     
     // Read and parse source language file if provided
     let source_resource = if let Some(source_path) = original_language_input {
         let source_content = fs::read_to_string(source_path)?;
-        Some(fluent_parser::parse_fluent(&source_content)?)
+        Some(fluent_data::parse_fluent(&source_content)?)
     } else {
         None
     };
