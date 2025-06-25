@@ -5,7 +5,7 @@ use polib::message::{Message as PoMessage, MessageView};
 
 use anyhow::Result;
 use std::path::Path;
-use crate::shared::fluent_parser::{FluentResource, FluentMessage, FluentPattern, FluentElement, extract_pattern_text, parse_string_value_as_fluent_pattern};
+use crate::shared::fluent_data::{FluentResource, FluentMessage, FluentPattern, FluentElement, extract_pattern_text, parse_string_value_as_fluent_pattern};
 use crate::shared::error::ConversionError;
 use std::collections::HashMap;
 
