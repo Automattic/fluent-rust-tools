@@ -902,4 +902,33 @@ item_count = {$count ->
         assert_eq!(reparsed_resource.messages.len(), 1);
         assert_eq!(reparsed_resource.messages[0].id, "test-multiline");
     }
+
+    #[test]
+    fn test_plural_conversion_with_mixed_variables() {
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let output_path = temp_dir.path().join("output.xml");
+
+        // Fluent with plural selector variable and other variables
+        let fluent_content = r#"shared-photos = {$photoCount ->
+    [one] {$userName} added {$photoCount} new photo to {$album}.
+   *[other] {$userName} added {$photoCount} new photos to {$album}.
+}"#;
+        fs::write(&input_path, fluent_content).unwrap();
+
+        let result = fluent_to_android(&input_path, &output_path);
+        assert!(result.is_ok());
+
+        let xml_content = fs::read_to_string(&output_path).unwrap();
+        
+        // Verify the entire Android XML structure as a string
+        let expected_xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <plurals name="shared-photos">
+    <item quantity="one">%1$s added %d new photo to %2$s.</item>
+    <item quantity="other">%1$s added %d new photos to %2$s.</item>
+  </plurals>
+</resources>"#;
+        assert_eq!(xml_content, expected_xml);
+    }
 }
