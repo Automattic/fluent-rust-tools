@@ -35,6 +35,17 @@ const FLUENT_SELECTOR_PREFIX: &str = "FLUENT_SELECTOR:";
 const FLUENT_MARKER_PREFIX: &str = "FLUENT_";
 
 // Fluent to PO plural form markers
+//
+// PO format limitation: Standard PO files only support msgstr[0] and msgstr[1] 
+// for plural forms, which cannot distinguish between Fluent's plural variants
+// like [0], [one], [other], etc.
+//
+// Solution: We use custom markers to preserve Fluent semantics:
+// - "FLUENT_ZERO:No notifications" for [0] variants
+// - "FLUENT_ONE:One notification" for [one] variants  
+// - "FLUENT_OTHER:{$count} notifications" for [other] variants
+//
+// This allows round-trip conversion (Fluent -> PO -> Fluent) without data loss.
 const FLUENT_ZERO_MARKER: &str = "FLUENT_ZERO";
 const FLUENT_ONE_MARKER: &str = "FLUENT_ONE";
 const FLUENT_OTHER_MARKER: &str = "FLUENT_OTHER";
