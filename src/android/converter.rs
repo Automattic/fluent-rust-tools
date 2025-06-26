@@ -8,10 +8,7 @@ use crate::android::android_format::{AndroidResources, AndroidString, AndroidPlu
 use crate::shared::fluent_data::{FluentResource, FluentMessage, FluentPattern, FluentElement, format_string_value_as_multiline_fluent_text};
 
 // Constants
-const COUNT_PLACEHOLDER: &str = "%d";
 const DEFAULT_COUNT_VARIABLE: &str = "count";
-const ANDROID_PLACEHOLDER_REGEX: &str = r"%(\d*)\$?[sdif]";
-const NUMBERED_COUNT_REGEX: &str = r"(%\d+\$d)";
 
 pub fn fluent_to_android(input_path: &Path, output_path: &Path) -> Result<()> {
     let fluent_content = fs::read_to_string(input_path)?;
@@ -195,8 +192,7 @@ fn convert_simple_pattern_to_android(
     pattern: &FluentPattern,
 ) -> Result<AndroidString> {
     let mut android_value = String::new();
-    let mut variable_mapping = HashMap::new();
-    let mut placeholder_counter = 1;
+    let variable_mapping = HashMap::new(); // No longer needed since we keep variables as-is
 
     for element in &pattern.elements {
         match element {
@@ -204,10 +200,8 @@ fn convert_simple_pattern_to_android(
                 android_value.push_str(&escape_android_string(text));
             }
             FluentElement::Variable(var_name) => {
-                let placeholder = create_placeholder(placeholder_counter);
-                android_value.push_str(&placeholder);
-                variable_mapping.insert(placeholder, var_name.clone());
-                placeholder_counter += 1;
+                // Keep Fluent variables as-is instead of converting to placeholders
+                android_value.push_str(&format!("{{${}}}", var_name));
             }
             FluentElement::Plural { .. } => {
                 return Err(anyhow::anyhow!("Unexpected plural in simple pattern"));
@@ -241,29 +235,32 @@ fn convert_plural_pattern_to_android(
 
     let (selector, variants) = plural_element;
     let mut android_items = HashMap::new();
-    let mut variable_mapping = HashMap::new();
+    let variable_mapping = HashMap::new(); // No longer needed since we keep variables as-is
 
     for (quantity, variant_pattern) in variants {
-        let (android_value, variant_mappings) = convert_pattern_to_android_text(variant_pattern, selector)?;
+        let android_value = convert_pattern_to_android_text_keeping_fluent_variables(variant_pattern)?;
         android_items.insert(map_fluent_to_android_quantity(quantity), android_value);
-        variable_mapping.extend(variant_mappings);
     }
+
+    // Create comment with FluentVariable to track the selector
+    let fluent_variable_comment = format!("FluentVariable: {{${}}}", selector);
+    let final_comment = match &message.comment {
+        Some(existing_comment) => format!("{}\n{}", existing_comment, fluent_variable_comment),
+        None => fluent_variable_comment,
+    };
 
     Ok(AndroidPlural {
         name: message.id.clone(),
         items: android_items,
-        comment: message.comment.clone(),
+        comment: Some(final_comment),
         variable_mapping,
     })
 }
 
-fn convert_pattern_to_android_text(
-    pattern: &FluentPattern, 
-    selector: &str
-) -> Result<(String, HashMap<String, String>)> {
+fn convert_pattern_to_android_text_keeping_fluent_variables(
+    pattern: &FluentPattern,
+) -> Result<String> {
     let mut android_value = String::new();
-    let mut variable_mapping = HashMap::new();
-    let mut placeholder_counter = 1;
 
     for element in &pattern.elements {
         match element {
@@ -271,18 +268,8 @@ fn convert_pattern_to_android_text(
                 android_value.push_str(&escape_android_string(text));
             }
             FluentElement::Variable(var_name) => {
-                let placeholder = if var_name == selector {
-                    COUNT_PLACEHOLDER.to_string()
-                } else {
-                    create_placeholder(placeholder_counter)
-                };
-                
-                android_value.push_str(&placeholder);
-                variable_mapping.insert(placeholder, var_name.clone());
-                
-                if var_name != selector {
-                    placeholder_counter += 1;
-                }
+                // Keep Fluent variables as-is instead of converting to placeholders
+                android_value.push_str(&format!("{{${}}}", var_name));
             }
             FluentElement::Plural { .. } => {
                 return Err(anyhow::anyhow!("Nested plurals not supported"));
@@ -290,7 +277,7 @@ fn convert_pattern_to_android_text(
         }
     }
 
-    Ok((android_value, variable_mapping))
+    Ok(android_value)
 }
 
 fn convert_android_string_to_fluent(
@@ -363,68 +350,66 @@ fn determine_plural_selector(
         return selector.clone();
     }
     
-    // Find from variable mapping
-    android_plural
-        .variable_mapping
-        .iter()
-        .find(|(placeholder, _)| placeholder.contains('d'))
-        .map(|(_, var)| var.clone())
-        .unwrap_or_else(|| DEFAULT_COUNT_VARIABLE.to_string())
+    // Try to extract from FluentVariable comment
+    if let Some(comment) = &android_plural.comment {
+        if let Some(selector) = extract_fluent_variable_from_comment(comment) {
+            return selector;
+        }
+    }
+    
+    // Fallback to default count variable
+    DEFAULT_COUNT_VARIABLE.to_string()
 }
 
-fn create_effective_mapping(
-    android_plural: &AndroidPlural, 
-    selector: &str
-) -> HashMap<String, String> {
-    let mut effective_mapping = android_plural.variable_mapping.clone();
+fn extract_fluent_variable_from_comment(comment: &str) -> Option<String> {
+    // Look for "FluentVariable: {$variableName}" pattern
+    let re = Regex::new(r"FluentVariable:\s*\{\$([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
     
-    // Ensure count mapping exists
-    let has_count_mapping = effective_mapping.iter()
-        .any(|(placeholder, _)| placeholder.contains('d'));
-    
-    if !has_count_mapping {
-        // Find and map count placeholder
-        for android_text in android_plural.items.values() {
-            if android_text.contains(COUNT_PLACEHOLDER) {
-                effective_mapping.insert(COUNT_PLACEHOLDER.to_string(), selector.to_string());
-                break;
-            } else if let Some(captures) = Regex::new(NUMBERED_COUNT_REGEX).unwrap().captures(android_text) {
-                if let Some(placeholder) = captures.get(1) {
-                    effective_mapping.insert(placeholder.as_str().to_string(), selector.to_string());
-                    break;
-                }
+    for line in comment.lines() {
+        if let Some(captures) = re.captures(line.trim()) {
+            if let Some(var_name) = captures.get(1) {
+                return Some(var_name.as_str().to_string());
             }
         }
     }
     
-    effective_mapping
+    None
+}
+
+fn create_effective_mapping(
+    android_plural: &AndroidPlural, 
+    _selector: &str
+) -> HashMap<String, String> {
+    // Since we now use Fluent variables directly, we don't need complex mapping logic
+    // Just return the existing mapping for any legacy support
+    android_plural.variable_mapping.clone()
 }
 
 fn convert_android_text_to_fluent_pattern(
     android_text: &str,
-    variable_mapping: &HashMap<String, String>,
-    original_variables: Option<&Vec<String>>,
+    _variable_mapping: &HashMap<String, String>,
+    _original_variables: Option<&Vec<String>>,
 ) -> Result<FluentPattern> {
     let unescaped_text = unescape_android_string(android_text);
     let formatted_text = format_string_value_as_multiline_fluent_text(&unescaped_text);
 
-    // Regex to check if the text has placeholders
-    let re = Regex::new(ANDROID_PLACEHOLDER_REGEX).unwrap();
+    // Regex to match Fluent variables: {$variableName}
+    let fluent_var_regex = Regex::new(r"\{\$([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
 
     let mut elements = Vec::new();
-    
     let mut last_end = 0;
-    let mut var_index = 0;
     
-    for mat in re.find_iter(&formatted_text) {
-        // Add text before placeholder
+    // Handle Fluent variables
+    for mat in fluent_var_regex.find_iter(&formatted_text) {
+        // Add text before variable
         add_text_element_if_not_empty(&mut elements, &formatted_text[last_end..mat.start()]);
         
-        // Add variable element
-        let placeholder = mat.as_str();
-        let var_name = determine_variable_name(placeholder, variable_mapping, original_variables, var_index);
-        elements.push(FluentElement::Variable(var_name));
-        var_index += 1;
+        // Extract variable name from {$variableName}
+        if let Some(captures) = fluent_var_regex.captures(mat.as_str()) {
+            if let Some(var_name) = captures.get(1) {
+                elements.push(FluentElement::Variable(var_name.as_str().to_string()));
+            }
+        }
         
         last_end = mat.end();
     }
@@ -432,7 +417,7 @@ fn convert_android_text_to_fluent_pattern(
     // Add remaining text
     add_text_element_if_not_empty(&mut elements, &formatted_text[last_end..]);
     
-    // Handle case with no placeholders
+    // Handle case with no variables
     if elements.is_empty() {
         elements.push(FluentElement::Text(formatted_text));
     }
@@ -440,37 +425,10 @@ fn convert_android_text_to_fluent_pattern(
     Ok(FluentPattern { elements })
 }
 
-// Helper functions
-fn create_placeholder(counter: u32) -> String {
-    format!("%{}$s", counter)
-}
-
 fn add_text_element_if_not_empty(elements: &mut Vec<FluentElement>, text: &str) {
     if !text.is_empty() {
         elements.push(FluentElement::Text(text.to_string()));
     }
-}
-
-fn determine_variable_name(
-    placeholder: &str,
-    variable_mapping: &HashMap<String, String>,
-    original_variables: Option<&Vec<String>>,
-    var_index: usize,
-) -> String {
-    // Try variable mapping first
-    if let Some(var_name) = variable_mapping.get(placeholder) {
-        return var_name.clone();
-    }
-    
-    // Try original variables
-    if let Some(vars) = original_variables {
-        if var_index < vars.len() {
-            return vars[var_index].clone();
-        }
-    }
-    
-    // Fallback to generated name
-    format!("var{}", var_index + 1)
 }
 
 fn escape_android_string(text: &str) -> String {
@@ -688,19 +646,17 @@ item_count = {$count ->
         let android_string = convert_simple_pattern_to_android(&message, pattern).unwrap();
         
         assert_eq!(android_string.name, "greeting");
-        assert_eq!(android_string.value, "Hello, %1$s!");
-        assert_eq!(android_string.variable_mapping.get("%1$s"), Some(&"name".to_string()));
+        assert_eq!(android_string.value, "Hello, {$name}!");
+        assert_eq!(android_string.variable_mapping.len(), 0); // No mapping needed since we keep variables as-is
         assert_eq!(android_string.comment, Some("This is a greeting message".to_string()));
     }
 
     #[test]
     fn test_convert_android_text_to_fluent_pattern() {
-        let mut variable_mapping = HashMap::new();
-        variable_mapping.insert("%1$s".to_string(), "name".to_string());
-        variable_mapping.insert("%d".to_string(), "count".to_string());
+        let variable_mapping = HashMap::new(); // Not needed for Fluent variables
         
         let pattern = convert_android_text_to_fluent_pattern(
-            "Hello %1$s, you have %d items",
+            "Hello {$name}, you have {$count} items",
             &variable_mapping,
             None,
         ).unwrap();
@@ -763,7 +719,7 @@ item_count = {$count ->
     fn test_positional_parameters_fluent_to_android() {
         use crate::shared::fluent_data::{FluentMessage, FluentPattern, FluentElement};
         
-        // Test with multiple variables to ensure all use positional parameters
+        // Test with multiple variables to ensure all use Fluent variable format
         let message = FluentMessage {
             id: "multi_vars".to_string(),
             value: Some(FluentPattern {
@@ -785,21 +741,16 @@ item_count = {$count ->
         let android_string = convert_simple_pattern_to_android(&message, pattern).unwrap();
         
         assert_eq!(android_string.name, "multi_vars");
-        assert_eq!(android_string.value, "Welcome %1$s, you have %2$s messages in %3$s!");
-        assert_eq!(android_string.variable_mapping.get("%1$s"), Some(&"name".to_string()));
-        assert_eq!(android_string.variable_mapping.get("%2$s"), Some(&"count".to_string()));
-        assert_eq!(android_string.variable_mapping.get("%3$s"), Some(&"folder".to_string()));
+        assert_eq!(android_string.value, "Welcome {$name}, you have {$count} messages in {$folder}!");
+        assert_eq!(android_string.variable_mapping.len(), 0); // No mapping needed since we keep variables as-is
     }
 
     #[test]
     fn test_positional_parameters_android_to_fluent() {
-        let mut variable_mapping = HashMap::new();
-        variable_mapping.insert("%1$s".to_string(), "name".to_string());
-        variable_mapping.insert("%2$s".to_string(), "count".to_string());
-        variable_mapping.insert("%3$s".to_string(), "folder".to_string());
+        let variable_mapping = HashMap::new(); // Not needed for Fluent variables
         
         let pattern = convert_android_text_to_fluent_pattern(
-            "Welcome %1$s, you have %2$s messages in %3$s!",
+            "Welcome {$name}, you have {$count} messages in {$folder}!",
             &variable_mapping,
             None,
         ).unwrap();
@@ -921,14 +872,10 @@ item_count = {$count ->
 
         let xml_content = fs::read_to_string(&output_path).unwrap();
         
-        // Verify the entire Android XML structure as a string
-        let expected_xml = r#"<?xml version="1.0" encoding="utf-8"?>
-<resources>
-  <plurals name="shared-photos">
-    <item quantity="one">%1$s added %d new photo to %2$s.</item>
-    <item quantity="other">%1$s added %d new photos to %2$s.</item>
-  </plurals>
-</resources>"#;
-        assert_eq!(xml_content, expected_xml);
+        // Verify the Android XML includes FluentVariable comment and Fluent variables
+        assert!(xml_content.contains("FluentVariable: {$photoCount}"));
+        assert!(xml_content.contains("{$userName} added {$photoCount} new photo to {$album}."));
+        assert!(xml_content.contains("{$userName} added {$photoCount} new photos to {$album}."));
+        assert!(xml_content.contains(r#"<plurals name="shared-photos">"#));
     }
 }
