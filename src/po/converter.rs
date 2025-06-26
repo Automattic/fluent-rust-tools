@@ -3,7 +3,8 @@ use std::path::Path;
 use std::fs;
 
 use crate::shared::fluent_data;
-use crate::po::po_format::{write_po_file, fluent_to_po_catalog, parse_po_file, po_catalog_to_fluent};
+use crate::po::po_format::{fluent_to_po_catalog, parse_po_file, po_catalog_to_fluent};
+use polib::po_file;
 
 pub fn fluent_to_po(input_path: &Path, output_path: &Path, locale: &str, original_language_input: Option<&Path>) -> Result<()> {
     // Read target Fluent file
@@ -23,8 +24,9 @@ pub fn fluent_to_po(input_path: &Path, output_path: &Path, locale: &str, origina
     // Convert to PO
     let po_catalog = fluent_to_po_catalog(fluent_resource, locale, source_resource)?;
     
-    // Write PO file
-    write_po_file(&po_catalog, output_path)?;
+    // Write PO file with proper CLDR plural forms
+    po_file::write(&po_catalog, output_path)
+        .map_err(|e| anyhow::anyhow!("Failed to write PO file: {}", e))?;
     
     Ok(())
 }
@@ -120,15 +122,15 @@ msgstr "Hello, {$name}!""#;
         assert!(po_content.contains("Plural-Forms:"),
                 "Should contain Plural-Forms header for proper plural handling");
 
-        // Verify complete plural entry block with proper structure
+        // Verify complete plural entry block with proper structure using standard PO format
         let plural_block = r#"#. FLUENT_SELECTOR:num
 msgctxt "count"
 msgid "{$num} item"
 msgid_plural "{$num} items"
-msgstr[0] "FLUENT_ONE:{$num} item"
-msgstr[1] "FLUENT_OTHER:{$num} items""#;
+msgstr[0] "{$num} item"
+msgstr[1] "{$num} items""#;
         assert!(po_content.contains(plural_block),
-                "PO content should contain complete plural entry block with properly formatted FLUENT_SELECTOR comment, msgctxt, msgid, msgid_plural, and msgstr entries");
+                "PO content should contain complete plural entry block with properly formatted FLUENT_SELECTOR comment, msgctxt, msgid, msgid_plural, and standard msgstr entries without FLUENT_ markers");
         
     }
 
@@ -552,5 +554,203 @@ greeting = Hello, {$name}!
         let roundtrip_content = fs::read_to_string(&roundtrip_path).unwrap();
         assert!(roundtrip_content.contains("hello = Hello World"));
         assert!(roundtrip_content.contains("greeting = Hello, { $name }!"));
+    }
+
+    #[test]
+    fn test_russian_cldr_plural_ordering() {
+        // Test that Russian plurals are correctly ordered according to CLDR rules
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let po_path = temp_dir.path().join("output.po");
+        let roundtrip_path = temp_dir.path().join("roundtrip.ftl");
+        
+        // Create a Fluent file with Russian plural forms (one, few, other)
+        let fluent_content = r#"files = { $count ->
+    [one] { $count } файл
+    [few] { $count } файла  
+   *[other] { $count } файлов
+}
+"#;
+        fs::write(&input_path, fluent_content).unwrap();
+        
+        // Convert to PO with Russian locale
+        let result = fluent_to_po(&input_path, &po_path, "ru", None);
+        assert!(result.is_ok());
+        
+        // Verify Russian plural forms in metadata
+        let po_content = fs::read_to_string(&po_path).unwrap();
+        assert!(po_content.contains("nplurals=3"), "Should have 3 plural forms for Russian");
+        assert!(po_content.contains("Language: ru"), "Should specify Russian language");
+        
+        // Verify msgstr forms are ordered according to Russian CLDR: [one, few, other]
+        assert!(po_content.contains("msgstr[0] \"{$count} файл\""), "msgstr[0] should be 'one' form");
+        assert!(po_content.contains("msgstr[1] \"{$count} файла\""), "msgstr[1] should be 'few' form");
+        assert!(po_content.contains("msgstr[2] \"{$count} файлов\""), "msgstr[2] should be 'other' form");
+        
+        // Test round-trip conversion preserves ordering
+        let roundtrip_result = po_to_fluent(&po_path, &roundtrip_path);
+        assert!(roundtrip_result.is_ok());
+        
+        let roundtrip_content = fs::read_to_string(&roundtrip_path).unwrap();
+        assert!(roundtrip_content.contains("[one] { $count } файл"));
+        assert!(roundtrip_content.contains("[few] { $count } файла"));
+        assert!(roundtrip_content.contains("*[other] { $count } файлов"));
+    }
+
+    #[test]
+    fn test_arabic_cldr_plural_ordering() {
+        // Test that Arabic plurals are correctly ordered according to CLDR rules (6 forms)
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let po_path = temp_dir.path().join("output.po");
+        let roundtrip_path = temp_dir.path().join("roundtrip.ftl");
+        
+        // Create a Fluent file with Arabic plural forms (zero, one, two, few, many, other)
+        let fluent_content = r#"items = { $count ->
+    [zero] لا توجد عناصر
+    [one] عنصر واحد
+    [two] عنصران
+    [few] { $count } عناصر
+    [many] { $count } عنصراً
+   *[other] { $count } عنصر
+}
+"#;
+        fs::write(&input_path, fluent_content).unwrap();
+        
+        // Convert to PO with Arabic locale
+        let result = fluent_to_po(&input_path, &po_path, "ar", None);
+        assert!(result.is_ok());
+        
+        // Verify Arabic plural forms in metadata
+        let po_content = fs::read_to_string(&po_path).unwrap();
+        assert!(po_content.contains("nplurals=6"), "Should have 6 plural forms for Arabic");
+        assert!(po_content.contains("Language: ar"), "Should specify Arabic language");
+        
+        // Verify msgstr forms are ordered according to Arabic CLDR: [zero, one, two, few, many, other]
+        assert!(po_content.contains("msgstr[0] \"لا توجد عناصر\""), "msgstr[0] should be 'zero' form");
+        assert!(po_content.contains("msgstr[1] \"عنصر واحد\""), "msgstr[1] should be 'one' form");
+        assert!(po_content.contains("msgstr[2] \"عنصران\""), "msgstr[2] should be 'two' form");
+        assert!(po_content.contains("msgstr[3] \"{$count} عناصر\""), "msgstr[3] should be 'few' form");
+        assert!(po_content.contains("msgstr[4] \"{$count} عنصراً\""), "msgstr[4] should be 'many' form");
+        assert!(po_content.contains("msgstr[5] \"{$count} عنصر\""), "msgstr[5] should be 'other' form");
+        
+        // Test round-trip conversion preserves all forms
+        let roundtrip_result = po_to_fluent(&po_path, &roundtrip_path);
+        assert!(roundtrip_result.is_ok());
+        
+        let roundtrip_content = fs::read_to_string(&roundtrip_path).unwrap();
+        assert!(roundtrip_content.contains("[zero] لا توجد عناصر"));
+        assert!(roundtrip_content.contains("[one] عنصر واحد"));
+        assert!(roundtrip_content.contains("[two] عنصران"));
+        assert!(roundtrip_content.contains("[few] { $count } عناصر"));
+        assert!(roundtrip_content.contains("[many] { $count } عنصراً"));
+        assert!(roundtrip_content.contains("*[other] { $count } عنصر"));
+    }
+
+    #[test]
+    fn test_chinese_cldr_single_form() {
+        // Test that Chinese (single plural form) is handled correctly
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let po_path = temp_dir.path().join("output.po");
+        let roundtrip_path = temp_dir.path().join("roundtrip.ftl");
+        
+        // Create a Fluent file with Chinese plural (only 'other' form needed)
+        let fluent_content = r#"items = { $count ->
+   *[other] { $count } 个项目
+}
+"#;
+        fs::write(&input_path, fluent_content).unwrap();
+        
+        // Convert to PO with Chinese locale
+        let result = fluent_to_po(&input_path, &po_path, "zh", None);
+        assert!(result.is_ok());
+        
+        // Verify Chinese plural forms in metadata
+        let po_content = fs::read_to_string(&po_path).unwrap();
+        assert!(po_content.contains("nplurals=1"), "Should have 1 plural form for Chinese");
+        assert!(po_content.contains("Language: zh"), "Should specify Chinese language");
+        
+        // Chinese should still generate msgstr[0] and msgstr[1] for PO compatibility
+        assert!(po_content.contains("msgstr[0] \"{$count} 个项目\""));
+        assert!(po_content.contains("msgstr[1] \"{$count} 个项目\""));
+        
+        // Test round-trip conversion
+        let roundtrip_result = po_to_fluent(&po_path, &roundtrip_path);
+        assert!(roundtrip_result.is_ok());
+        
+        let roundtrip_content = fs::read_to_string(&roundtrip_path).unwrap();
+        assert!(roundtrip_content.contains("*[other] { $count } 个项目"));
+    }
+
+    #[test]
+    fn test_mixed_numeric_and_cldr_categories() {
+        // Test that mixed numeric and CLDR categories are handled correctly
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let po_path = temp_dir.path().join("output.po");
+        let roundtrip_path = temp_dir.path().join("roundtrip.ftl");
+        
+        // Create a Fluent file mixing numeric and CLDR categories
+        let fluent_content = r#"notification = { $count ->
+    [0] No notifications
+    [1] One notification  
+    [one] { $count } notification
+   *[other] { $count } notifications
+}
+"#;
+        fs::write(&input_path, fluent_content).unwrap();
+        
+        // Convert to PO with English locale
+        let result = fluent_to_po(&input_path, &po_path, "en", None);
+        assert!(result.is_ok());
+        
+        let po_content = fs::read_to_string(&po_path).unwrap();
+        
+        // Should prioritize CLDR categories first, then numeric forms
+        // For English: [one, other] categories come first, then [0, 1] numeric forms
+        assert!(po_content.contains("msgstr[0] \"{$count} notification\""), "msgstr[0] should be CLDR 'one' form");
+        assert!(po_content.contains("msgstr[1] \"{$count} notifications\""), "msgstr[1] should be CLDR 'other' form");
+        assert!(po_content.contains("No notifications"), "Should include numeric '0' form");
+        assert!(po_content.contains("One notification"), "Should include numeric '1' form");
+        
+        // Test round-trip conversion preserves all forms
+        let roundtrip_result = po_to_fluent(&po_path, &roundtrip_path);
+        assert!(roundtrip_result.is_ok());
+        
+        let roundtrip_content = fs::read_to_string(&roundtrip_path).unwrap();
+        assert!(roundtrip_content.contains("notification ="));
+        assert!(roundtrip_content.contains("{ $count ->"));
+    }
+
+    #[test]
+    fn test_locale_with_region_code() {
+        // Test that locale with region codes (like en-US, pt-BR) work correctly
+        let temp_dir = tempdir().unwrap();
+        let input_path = temp_dir.path().join("input.ftl");
+        let po_path = temp_dir.path().join("output.po");
+        
+        // Create a Fluent file with plurals
+        let fluent_content = r#"days = { $count ->
+    [one] { $count } dia
+   *[other] { $count } dias  
+}
+"#;
+        fs::write(&input_path, fluent_content).unwrap();
+        
+        // Convert to PO with Brazilian Portuguese locale (should use Portuguese rules)
+        let result = fluent_to_po(&input_path, &po_path, "pt-BR", None);
+        assert!(result.is_ok());
+        
+        let po_content = fs::read_to_string(&po_path).unwrap();
+        
+        // Should use Portuguese plural rules (nplurals=2; plural=(n > 1))
+        assert!(po_content.contains("nplurals=2"), "Should have 2 plural forms for Portuguese");
+        assert!(po_content.contains("plural=(n > 1)"), "Should use Portuguese plural rule");
+        assert!(po_content.contains("Language: pt-BR"), "Should preserve full locale code");
+        
+        // Verify correct ordering (Portuguese uses same categories as English: one, other)
+        assert!(po_content.contains("msgstr[0] \"{$count} dia\""), "msgstr[0] should be 'one' form");
+        assert!(po_content.contains("msgstr[1] \"{$count} dias\""), "msgstr[1] should be 'other' form");
     }
 }
