@@ -11,7 +11,6 @@ user-info = User {$name} has {$email} and joined on {$date}
 
 # Plural forms with variables
 notification-count = {$count ->
-    [0] No new notifications
     [one] You have {$count} new notification
    *[other] You have {$count} new notifications
 }

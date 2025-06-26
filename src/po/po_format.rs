@@ -7,6 +7,15 @@ use anyhow::Result;
 use std::path::Path;
 use crate::shared::fluent_data::{FluentResource, FluentMessage, FluentPattern, FluentElement, extract_pattern_text, parse_string_value_as_fluent_pattern};
 use crate::shared::error::ConversionError;
+use crate::po::cldr_plural_rules::{
+    get_plural_forms_for_locale,
+    map_cldr_categories_to_po_indices_for_locale, 
+    map_po_indices_to_cldr_categories_for_locale, 
+    is_singular_category,
+    is_other_category,
+    CLDR_OTHER_CATEGORY,
+    DEFAULT_PLURAL_FORMS,
+};
 use std::collections::HashMap;
 
 // =============================================================================
@@ -30,25 +39,7 @@ const DEFAULT_CHARSET: &str = "text/plain; charset=UTF-8";
 const DEFAULT_ENCODING: &str = "8bit";
 const DEFAULT_MIME_VERSION: &str = "1.0";
 const DEFAULT_LANGUAGE: &str = "en";
-const DEFAULT_PLURAL_FORMS: &str = "nplurals=1; plural=0;";
 const FLUENT_SELECTOR_PREFIX: &str = "FLUENT_SELECTOR:";
-const FLUENT_MARKER_PREFIX: &str = "FLUENT_";
-
-// Fluent to PO plural form markers
-//
-// PO format limitation: Standard PO files only support msgstr[0] and msgstr[1] 
-// for plural forms, which cannot distinguish between Fluent's plural variants
-// like [0], [one], [other], etc.
-//
-// Solution: We use custom markers to preserve Fluent semantics:
-// - "FLUENT_ZERO:No notifications" for [0] variants
-// - "FLUENT_ONE:One notification" for [one] variants  
-// - "FLUENT_OTHER:{$count} notifications" for [other] variants
-//
-// This allows round-trip conversion (Fluent -> PO -> Fluent) without data loss.
-const FLUENT_ZERO_MARKER: &str = "FLUENT_ZERO";
-const FLUENT_ONE_MARKER: &str = "FLUENT_ONE";
-const FLUENT_OTHER_MARKER: &str = "FLUENT_OTHER";
 
 // =============================================================================
 // Public API Functions
@@ -80,13 +71,6 @@ pub fn preprocess_po_content(content: &str) -> Result<String> {
     processor.process()
 }
 
-/// Write a PO catalog to file
-pub fn write_po_file(catalog: &Catalog, output_path: &Path) -> Result<()> {
-    po_file::write(catalog, output_path)
-        .map_err(|e| ConversionError::OutputFileWriteError(format!("Failed to write PO file: {}", e)))?;
-    Ok(())
-}
-
 /// Convert a Fluent resource to a PO catalog
 pub fn fluent_to_po_catalog(
     target_resource: FluentResource, 
@@ -100,7 +84,7 @@ pub fn fluent_to_po_catalog(
     
     for message in target_resource.messages {
         let source_message = source_lookup.get(&message.id).copied();
-        convert_fluent_message_to_po(&mut catalog, &message, source_message)?;
+        convert_fluent_message_to_po(&mut catalog, &message, source_message, locale)?;
     }
     
     Ok(catalog)
@@ -116,7 +100,7 @@ pub fn po_catalog_to_fluent(catalog: Catalog) -> Result<FluentResource> {
         
         // Convert PO message to Fluent message
         let fluent_message = if message.is_plural() {
-            convert_plural_po_message_to_fluent_message(&key, message)?
+            convert_plural_po_message_to_fluent_message(&key, message, &catalog.metadata.language)?
         } else {
             convert_singular_po_message_to_fluent_message(&key, message)?
         };
@@ -236,15 +220,6 @@ struct PluralInfo {
     forms: Vec<(String, String)>, // (key, text) pairs
 }
 
-/// Categorized plural forms for easier processing
-#[derive(Default)]
-struct CategorizedPluralForms {
-    zero_form: Option<String>,
-    one_form: Option<String>,
-    other_form: Option<String>,
-    numeric_forms: HashMap<String, String>,
-}
-
 // =============================================================================
 // Core Conversion Functions
 // =============================================================================
@@ -252,11 +227,12 @@ struct CategorizedPluralForms {
 fn convert_fluent_message_to_po(
     catalog: &mut Catalog, 
     message: &FluentMessage, 
-    source_message: Option<&FluentMessage>
+    source_message: Option<&FluentMessage>,
+    locale: &str
 ) -> Result<()> {
     // Convert main message value
     if let Some(pattern) = &message.value {
-        convert_main_message_value(catalog, message, pattern, source_message)?;
+        convert_main_message_value(catalog, message, pattern, source_message, locale)?;
     }
     
     // Convert attributes
@@ -270,12 +246,13 @@ fn convert_main_message_value(
     message: &FluentMessage,
     pattern: &FluentPattern,
     source_message: Option<&FluentMessage>,
+    locale: &str,
 ) -> Result<()> {
     let target_text = extract_pattern_text(pattern);
     let comments = message.comment.as_ref().unwrap_or(&String::new()).clone();
     
-        if let Some(plural_info) = extract_plural_info(pattern) {
-        convert_plural_message(catalog, message, &plural_info, source_message, &comments)?;
+    if let Some(plural_info) = extract_plural_info(pattern) {
+        convert_plural_message(catalog, message, &plural_info, source_message, &comments, locale)?;
     } else {
         convert_singular_message(catalog, message, &target_text, source_message, &comments)?;
     }
@@ -289,19 +266,40 @@ fn convert_plural_message(
     plural_info: &PluralInfo,
     source_message: Option<&FluentMessage>,
     comments: &str,
+    locale: &str,
 ) -> Result<()> {
-    let (msgid, msgid_plural, msgstr_forms) = get_plural_forms(plural_info, source_message)?;
+    // Simplified logic: directly get plural forms without multiple wrapper functions
+    let (msgid, msgid_plural, msgstr_forms) = if let Some(source_msg) = source_message {
+        // Check if source has plural info
+        if let Some(source_value) = &source_msg.value {
+            if let Some(source_plural_info) = extract_plural_info(source_value) {
+                // Use source for msgid, target for msgstr
+                let (source_msgid, source_msgid_plural, _) = create_po_plural_forms(&source_plural_info, locale);
+                let (_, _, target_msgstr_forms) = create_po_plural_forms(plural_info, locale);
+                (source_msgid, source_msgid_plural, target_msgstr_forms)
+            } else {
+                // Source doesn't have plural, use target for both
+                create_po_plural_forms(plural_info, locale)
+            }
+        } else {
+            // Source has no value, use target for both
+            create_po_plural_forms(plural_info, locale)
+        }
+    } else {
+        // No source message, use target for both
+        create_po_plural_forms(plural_info, locale)
+    };
     
-            let mut msg_builder = PoMessage::build_plural();
-            msg_builder
+    let mut msg_builder = PoMessage::build_plural();
+    msg_builder
         .with_msgctxt(message.id.clone())
-                .with_msgid(msgid)
-                .with_msgid_plural(msgid_plural)
-                .with_msgstr_plural(msgstr_forms);
+        .with_msgid(msgid)
+        .with_msgid_plural(msgid_plural)
+        .with_msgstr_plural(msgstr_forms);
             
     let combined_comments = create_combined_comments(comments, &plural_info.selector);
     if !combined_comments.is_empty() {
-            msg_builder.with_comments(combined_comments);
+        msg_builder.with_comments(combined_comments);
     }
     
     catalog.append_or_update(msg_builder.done());
@@ -386,7 +384,8 @@ fn convert_singular_po_message_to_fluent_message(
 
 fn convert_plural_po_message_to_fluent_message(
     key: &str, 
-    message: &dyn MessageView
+    message: &dyn MessageView,
+    locale: &str
 ) -> Result<Option<FluentMessage>> {
     let msgstr_plural = message.msgstr_plural()?;
     let selector = extract_selector_from_comments(message.comments())
@@ -396,26 +395,46 @@ fn convert_plural_po_message_to_fluent_message(
     let mut variants = HashMap::new();
     let mut has_other = false;
     
-    for msgstr in msgstr_plural.iter() {
+    // Map standard PO msgstr[n] entries to Fluent plural forms using CLDR mapping
+    let cldr_categories = map_po_indices_to_cldr_categories_for_locale(msgstr_plural.len(), locale);
+    
+    for (index, msgstr) in msgstr_plural.iter().enumerate() {
         let cleaned_msgstr = unescape_fluent_value(msgstr);
         
-        if let Some((variant_key, text)) = parse_plural_form(&cleaned_msgstr) {
-            if !text.trim().is_empty() {
-                // Parse each variant text as a Fluent pattern
-                let variant_pattern = parse_string_value_as_fluent_pattern(key, &text);
-                
-                if variant_key == "other" {
+        if !cleaned_msgstr.trim().is_empty() {
+            // Parse each variant text as a Fluent pattern
+            let variant_pattern = parse_string_value_as_fluent_pattern(key, &cleaned_msgstr);
+            
+            // Map PO plural index to Fluent variant key using CLDR categories
+            let variant_key = if index < cldr_categories.len() {
+                let cldr_key = cldr_categories[index];
+                if is_other_category(cldr_key) {
                     has_other = true;
                 }
-                variants.insert(variant_key, variant_pattern);
-            }
+                cldr_key.to_string()
+            } else {
+                // Additional forms for complex languages - use numeric fallback
+                format!("{}", index)
+            };
+            
+            variants.insert(variant_key, variant_pattern);
         }
     }
     
     // Ensure we have at least an 'other' form (required by Fluent)
+    if !has_other && !variants.is_empty() {
+        // If we don't have an explicit "other" form, use the last available form
+        if let Some((last_key, last_pattern)) = variants.iter().last() {
+            if !is_other_category(last_key) {
+                variants.insert(CLDR_OTHER_CATEGORY.to_string(), last_pattern.clone());
+                has_other = true;
+            }
+        }
+    }
+    
     if !has_other {
         let fallback_text = message.msgid_plural().unwrap_or("items");
-        variants.insert("other".to_string(), FluentPattern {
+        variants.insert(CLDR_OTHER_CATEGORY.to_string(), FluentPattern {
             elements: vec![FluentElement::Text(fallback_text.to_string())],
         });
     }
@@ -437,29 +456,6 @@ fn convert_plural_po_message_to_fluent_message(
         attributes: HashMap::new(),
         comment,
     }))
-}
-
-/// Parse a PO plural form string into (variant_key, text)
-fn parse_plural_form(msgstr: &str) -> Option<(String, String)> {
-    if let Some(colon_pos) = msgstr.find(':') {
-        let (marker, text) = msgstr.split_at(colon_pos);
-        let text = text[1..].to_string(); // Remove the ':' character
-        
-        let variant_key = match marker {
-            FLUENT_ZERO_MARKER => "0".to_string(),
-            FLUENT_ONE_MARKER => "one".to_string(),
-            FLUENT_OTHER_MARKER => "other".to_string(),
-            other if other.starts_with(FLUENT_MARKER_PREFIX) => {
-                other[FLUENT_MARKER_PREFIX.len()..].to_lowercase()
-            }
-            _ => "other".to_string(), // Fallback for unknown markers
-        };
-        
-        Some((variant_key, text))
-    } else {
-        // Fallback: treat as 'other' form if no marker
-        Some(("other".to_string(), msgstr.to_string()))
-    }
 }
 
 /// Extract comments excluding FLUENT_SELECTOR directives
@@ -485,24 +481,40 @@ fn extract_filtered_comments(comments: &str) -> Option<String> {
 // =============================================================================
 
 fn create_po_metadata(locale: &str) -> CatalogMetadata {
-    let mut metadata = CatalogMetadata::default();
-    
-    metadata.project_id_version = option_env!("CARGO_PKG_VERSION")
+    let project_id_version = option_env!("CARGO_PKG_VERSION")
         .map(|v| format!("wordpress-rs {}", v))
         .unwrap_or_else(|| "wordpress-rs".to_string());
     
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M%z").to_string();
-    metadata.pot_creation_date = now.clone();
-    metadata.po_revision_date = now;
     
-    metadata.last_translator = String::new();
-    metadata.language_team = String::new();
-    metadata.mime_version = DEFAULT_MIME_VERSION.to_string();
-    metadata.content_type = DEFAULT_CHARSET.to_string();
-    metadata.content_transfer_encoding = DEFAULT_ENCODING.to_string();
-    metadata.language = locale.to_string();
+    // Get the correct CLDR plural forms for the locale
+    let plural_forms = get_plural_forms_for_locale(locale);
     
-    metadata
+    // Construct the metadata string with proper plural forms
+    let metadata_str = format!(
+        "Project-Id-Version: {}\n\
+         POT-Creation-Date: {}\n\
+         PO-Revision-Date: {}\n\
+         Last-Translator: \n\
+         Language-Team: \n\
+         MIME-Version: {}\n\
+         Content-Type: {}\n\
+         Content-Transfer-Encoding: {}\n\
+         Language: {}\n\
+         Plural-Forms: {}\n",
+        project_id_version,
+        now,
+        now,
+        DEFAULT_MIME_VERSION,
+        DEFAULT_CHARSET,
+        DEFAULT_ENCODING,
+        locale,
+        plural_forms
+    );
+    
+    // Parse the metadata string to create CatalogMetadata with proper plural rules
+    CatalogMetadata::parse(&metadata_str)
+        .expect("Failed to parse metadata string")
 }
 
 fn create_source_message_lookup(source_resource: Option<&FluentResource>) -> HashMap<String, &FluentMessage> {
@@ -550,27 +562,6 @@ fn create_combined_comments(existing_comments: &str, selector: &str) -> String {
     }
 }
 
-fn get_plural_forms(
-    plural_info: &PluralInfo, 
-    source_message: Option<&FluentMessage>
-) -> Result<(String, String, Vec<String>)> {
-    if let Some(source_plural_info) = get_source_plural_info(source_message) {
-        // Use source for msgid, target for msgstr
-        let (source_msgid, source_msgid_plural, _) = create_po_plural_forms(&source_plural_info);
-        let (_, _, target_msgstr_forms) = create_po_plural_forms(plural_info);
-        Ok((source_msgid, source_msgid_plural, target_msgstr_forms))
-    } else {
-        // Use target for both
-        Ok(create_po_plural_forms(plural_info))
-    }
-}
-
-fn get_source_plural_info(source_message: Option<&FluentMessage>) -> Option<PluralInfo> {
-    source_message
-        .and_then(|sm| sm.value.as_ref())
-        .and_then(|sp| extract_plural_info(sp))
-}
-
 fn extract_plural_info(pattern: &FluentPattern) -> Option<PluralInfo> {
     for element in &pattern.elements {
         if let FluentElement::Plural { selector, variants } = element {
@@ -593,86 +584,46 @@ fn extract_plural_info(pattern: &FluentPattern) -> Option<PluralInfo> {
     None
 }
 
-fn create_po_plural_forms(plural_info: &PluralInfo) -> (String, String, Vec<String>) {
-    let categorized_forms = categorize_plural_forms(&plural_info.forms);
+fn create_po_plural_forms(plural_info: &PluralInfo, locale: &str) -> (String, String, Vec<String>) {
+    // Use CLDR mapping for msgstr forms (already implemented and working well)
+    let msgstr_forms = map_cldr_categories_to_po_indices_for_locale(&plural_info.forms, locale);
     
-    let msgid = determine_msgid(&categorized_forms, &plural_info.forms);
-    let msgid_plural = determine_msgid_plural(&categorized_forms, &plural_info.forms);
-    let msgstr_forms = create_msgstr_forms(plural_info, &categorized_forms, &msgid_plural);
+    // Simplified msgid/msgid_plural selection logic
+    let msgid = find_singular_form(&plural_info.forms);
+    let msgid_plural = find_plural_form(&plural_info.forms);
     
     (msgid, msgid_plural, msgstr_forms)
 }
 
-fn categorize_plural_forms(forms: &[(String, String)]) -> CategorizedPluralForms {
-    let mut categorized = CategorizedPluralForms::default();
-    
-    for (key, text) in forms {
-        match key.as_str() {
-            "0" => categorized.zero_form = Some(text.clone()),
-            "1" => { categorized.numeric_forms.insert("1".to_string(), text.clone()); },
-            "one" => categorized.one_form = Some(text.clone()),
-            "other" => categorized.other_form = Some(text.clone()),
-            _num if key.chars().all(|c| c.is_ascii_digit()) => {
-                categorized.numeric_forms.insert(key.clone(), text.clone());
-            },
-            _ => {} // Handle other cases like "few", "many" later if needed
-        }
+// Simplified helper functions for picking msgid/msgid_plural from Fluent forms
+fn find_singular_form(forms: &[(String, String)]) -> String {
+    // Look for standard singular forms in order of preference
+    if let Some((_, text)) = forms.iter().find(|(key, _)|  is_singular_category(key)) {
+        return text.clone();
     }
     
-    categorized
+    // Fallback to first available form
+    forms.first()
+        .map(|(_, text)| text.clone())
+        .unwrap_or_default()
 }
 
-fn determine_msgid(categorized: &CategorizedPluralForms, all_forms: &[(String, String)]) -> String {
-    categorized.one_form.as_ref()
-        .or(categorized.zero_form.as_ref())
-        .or_else(|| categorized.numeric_forms.get("1"))
-        .or_else(|| all_forms.first().map(|(_, text)| text))
-        .unwrap_or(&String::new())
-        .clone()
-}
-
-fn determine_msgid_plural(categorized: &CategorizedPluralForms, all_forms: &[(String, String)]) -> String {
-    categorized.other_form.as_ref()
-        .or_else(|| all_forms.iter()
-            .find(|(key, _)| key != "one" && key != "0" && key != "1")
-            .map(|(_, text)| text))
-        .unwrap_or(&String::new())
-        .clone()
-}
-
-fn create_msgstr_forms(
-    plural_info: &PluralInfo,
-    categorized: &CategorizedPluralForms, 
-    msgid_plural: &str
-) -> Vec<String> {
-    let mut msgstr_forms = Vec::new();
-    
-    // Add forms with markers to preserve original structure
-    if let Some(ref zero) = categorized.zero_form {
-        msgstr_forms.push(format!("{}:{}", FLUENT_ZERO_MARKER, zero));
+fn find_plural_form(forms: &[(String, String)]) -> String {
+    // Look for "other" first (universal plural form)
+    if let Some((_, text)) = forms.iter().find(|(key, _)| is_other_category(key)) {
+        return text.clone();
     }
     
-    if let Some(ref one) = categorized.one_form {
-        msgstr_forms.push(format!("{}:{}", FLUENT_ONE_MARKER, one));
+    // Find any form that's not singular
+    if let Some((_, text)) = forms.iter().find(|(key, _)| !is_singular_category(key)) {
+        return text.clone();
     }
     
-    if let Some(ref other) = categorized.other_form {
-        msgstr_forms.push(format!("{}:{}", FLUENT_OTHER_MARKER, other));
-    }
-    
-    // If no standard forms, preserve all original forms
-    if msgstr_forms.is_empty() {
-        for (key, text) in &plural_info.forms {
-            msgstr_forms.push(format!("{}{}:{}", FLUENT_MARKER_PREFIX, key.to_uppercase(), text));
-        }
-    }
-    
-    // PO requires at least 2 forms
-    while msgstr_forms.len() < 2 {
-        msgstr_forms.push(format!("{}:{}", FLUENT_OTHER_MARKER, msgid_plural));
-    }
-    
-    msgstr_forms
+    // Final fallback - use second form if available, otherwise first
+    forms.get(1)
+        .or_else(|| forms.first())
+        .map(|(_, text)| text.clone())
+        .unwrap_or_default()
 }
 
 fn extract_selector_from_comments(comments: &str) -> Option<String> {
@@ -788,15 +739,15 @@ mod tests {
             .with_comments("A simple greeting".to_string());
         catalog.append_or_update(msg_builder.done());
         
-        // Plural message
+        // Plural message using standard PO format (no FLUENT_ markers)
         let mut msg_builder = PoMessage::build_plural();
         msg_builder
             .with_msgctxt("item_count".to_string())
             .with_msgid("{$count} item".to_string())
             .with_msgid_plural("{$count} items".to_string())
             .with_msgstr_plural(vec![
-                "FLUENT_ONE:{$count} item".to_string(),
-                "FLUENT_OTHER:{$count} items".to_string(),
+                "{$count} item".to_string(),
+                "{$count} items".to_string(),
             ])
             .with_comments("FLUENT_SELECTOR:count\nItem counter".to_string());
         catalog.append_or_update(msg_builder.done());
@@ -865,13 +816,14 @@ mod tests {
             ],
         };
         
-        let (msgid, msgid_plural, msgstr_forms) = create_po_plural_forms(&plural_info);
+        let (msgid, msgid_plural, msgstr_forms) = create_po_plural_forms(&plural_info, "en");
         
         assert_eq!(msgid, "{$count} item");
         assert_eq!(msgid_plural, "{$count} items");
         assert_eq!(msgstr_forms.len(), 2);
-        assert!(msgstr_forms.contains(&"FLUENT_ONE:{$count} item".to_string()));
-        assert!(msgstr_forms.contains(&"FLUENT_OTHER:{$count} items".to_string()));
+        // New standard PO format without FLUENT_ markers
+        assert!(msgstr_forms.contains(&"{$count} item".to_string()));
+        assert!(msgstr_forms.contains(&"{$count} items".to_string()));
         
         // Test with numeric forms
         let plural_info_numeric = PluralInfo {
@@ -883,13 +835,14 @@ mod tests {
             ],
         };
         
-        let (msgid, msgid_plural, msgstr_forms) = create_po_plural_forms(&plural_info_numeric);
+        let (msgid, msgid_plural, msgstr_forms) = create_po_plural_forms(&plural_info_numeric, "en");
         
-        assert_eq!(msgid, "no items"); // Prefers [0] form for msgid
+        assert_eq!(msgid, "one item");
         assert_eq!(msgid_plural, "many items");
         assert!(msgstr_forms.len() >= 2);
-        assert!(msgstr_forms.contains(&"FLUENT_ZERO:no items".to_string()));
-        assert!(msgstr_forms.contains(&"FLUENT_OTHER:many items".to_string()));
+        // New standard PO format without FLUENT_ markers
+        assert!(msgstr_forms.contains(&"no items".to_string()));
+        assert!(msgstr_forms.contains(&"many items".to_string()));
     }
 
     #[test]
@@ -937,7 +890,7 @@ mod tests {
         catalog.append_or_update(message);
         
         // Write the file
-        let write_result = write_po_file(&catalog, &po_path);
+        let write_result = po_file::write(&catalog, &po_path);
         assert!(write_result.is_ok());
         
         // Verify file exists
