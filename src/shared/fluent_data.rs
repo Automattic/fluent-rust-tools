@@ -59,12 +59,7 @@ fn extract_element_text(element: &FluentElement) -> String {
     match element {
         FluentElement::Text(text) => text.clone(),
         FluentElement::Variable(var) => format!("{{${}}}", var),
-        FluentElement::Plural { selector, .. } => {
-            // For plurals, we'll include the selector variable for now
-            // This is a simplified approach - a full implementation would
-            // need more sophisticated handling
-            format!("{{ ${} }}", selector)
-        }
+        FluentElement::Plural { selector, .. } => format!("{{ ${} }}", selector)
     }
 }
 
