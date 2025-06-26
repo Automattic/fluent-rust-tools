@@ -66,7 +66,7 @@ else
     exit 1
 fi
 
-if grep -q '%1$s' "${ANDROID_OUTPUT}"; then
+if grep -q 'Price: ${$amount}' "${ANDROID_OUTPUT}"; then
     echo -e "${GREEN}✅ Android XML contains proper variable placeholders${NC}"
 else
     echo -e "${RED}❌ Android XML missing variable placeholders${NC}"

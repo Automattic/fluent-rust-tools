@@ -20,13 +20,12 @@ steps:
   - group: "Tests"
     key: tests
     steps:
-      - label: "🧪 Run Tests"
+      - label: ":rust: Run Tests"
         command: |
-          echo "--- :rust: Run Tests"
           make test
         notify:
           - github_commit_status:
-              context: "Tests"
+              context: "Rust Tests"
 
   #################
   # Lint
