@@ -1,0 +1,29 @@
+[package]
+name = "fluent-tools"
+version = "0.1.0"
+edition = "2024"
+description = "A CLI tool to convert between Fluent and other formats (Android XML, GNU gettext PO)"
+license = "MPL-2.0"
+authors = ["Automattic <mobile@automattic.com>"]
+repository = "https://github.com/Automattic/fluent-rust-tools"
+
+[[bin]]
+name = "fluent-tools"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+quick-xml = { version = "0.31", features = ["serialize"] }
+fluent-syntax = "0.12"
+regex = "1.10"
+thiserror = "1.0"
+polib = "0.2"
+tempfile = "3.8"
+chrono = "0.4"
+
+[dev-dependencies]
+tempfile = "3.8"
+assert_cmd = "2.0"
+predicates = "3.0"
