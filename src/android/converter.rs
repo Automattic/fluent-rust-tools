@@ -206,7 +206,7 @@ fn convert_simple_pattern_to_android(
             }
             FluentElement::Variable(var_name) => {
                 // Keep Fluent variables as-is instead of converting to placeholders
-                android_value.push_str(&format!("{{${}}}", var_name));
+                android_value.push_str(&format!("{{${var_name}}}"));
             }
             FluentElement::Plural { .. } => {
                 return Err(anyhow::anyhow!("Unexpected plural in simple pattern"));
@@ -250,9 +250,9 @@ fn convert_plural_pattern_to_android(
     }
 
     // Create comment with FluentVariable to track the selector
-    let fluent_variable_comment = format!("FluentVariable: {{${}}}", selector);
+    let fluent_variable_comment = format!("FluentVariable: {{${selector}}}");
     let final_comment = match &message.comment {
-        Some(existing_comment) => format!("{}\n{}", existing_comment, fluent_variable_comment),
+        Some(existing_comment) => format!("{existing_comment}\n{fluent_variable_comment}"),
         None => fluent_variable_comment,
     };
 
@@ -276,7 +276,7 @@ fn convert_pattern_to_android_text_keeping_fluent_variables(
             }
             FluentElement::Variable(var_name) => {
                 // Keep Fluent variables as-is instead of converting to placeholders
-                android_value.push_str(&format!("{{${}}}", var_name));
+                android_value.push_str(&format!("{{${var_name}}}"));
             }
             FluentElement::Plural { .. } => {
                 return Err(anyhow::anyhow!("Nested plurals not supported"));

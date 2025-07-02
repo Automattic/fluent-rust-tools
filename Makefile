@@ -1,7 +1,7 @@
 .PHONY: all build test unit-test cli-test clean help
 
 # Common docker options
-rust_docker_container := public.ecr.aws/docker/library/rust:1.86.0
+rust_docker_container := public.ecr.aws/docker/library/rust:1.88.0
 docker_container_repo_dir := /app
 rust_docker_run := docker run --rm -v $(PWD):$(docker_container_repo_dir) -w $(docker_container_repo_dir) -e CARGO_HOME=$(docker_container_repo_dir)/.cargo $(rust_docker_container)
 
