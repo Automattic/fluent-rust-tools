@@ -31,6 +31,26 @@ impl TryFrom<Entry<&str>> for FluentMessage {
     }
 }
 
+impl From<fluent_syntax::ast::Message<&str>> for FluentMessage {
+    fn from(message: fluent_syntax::ast::Message<&str>) -> Self {
+        let message_id = message.id.name.to_string();
+
+        // Only use comments directly associated with the message by the fluent-syntax parser
+        let comment = message
+            .comment
+            .map(|msg_comment| msg_comment.content.join("\n"));
+
+        Self {
+            id: message_id,
+            value: message
+                .value
+                .map(|pattern| FluentResourceParser::convert_pattern(&pattern)),
+            attributes: FluentResourceParser::convert_attributes(message.attributes),
+            comment,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FluentPattern {
     pub elements: Vec<FluentElement>,
