@@ -4,8 +4,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::android::android_format::{AndroidResources, AndroidString, AndroidPlural};
-use crate::shared::fluent_data::{FluentResource, FluentMessage, FluentPattern, FluentElement, format_string_value_as_multiline_fluent_text};
+use crate::android::android_format::{AndroidPlural, AndroidResources, AndroidString};
+use crate::shared::fluent_data::{
+    FluentElement, FluentMessage, FluentPattern, FluentResource,
+    format_string_value_as_multiline_fluent_text,
+};
 
 // Constants
 const DEFAULT_COUNT_VARIABLE: &str = "count";
@@ -13,10 +16,10 @@ const DEFAULT_COUNT_VARIABLE: &str = "count";
 pub fn fluent_to_android(input_path: &Path, output_path: &Path) -> Result<()> {
     let fluent_content = fs::read_to_string(input_path)?;
     let fluent_resource = FluentResource::from_source(&fluent_content)?;
-    
+
     let android_resources = convert_fluent_to_android(&fluent_resource)?;
     let xml_content = android_resources.to_xml()?;
-    
+
     fs::write(output_path, xml_content)?;
     Ok(())
 }
@@ -24,31 +27,31 @@ pub fn fluent_to_android(input_path: &Path, output_path: &Path) -> Result<()> {
 pub fn android_to_fluent(input_path: &Path, output_path: &Path) -> Result<()> {
     let xml_content = fs::read_to_string(input_path)?;
     let android_resources = AndroidResources::from_xml(&xml_content)?;
-    
+
     let conversion_context = ConversionContext::default();
     let fluent_resource = convert_android_to_fluent(&android_resources, &conversion_context)?;
     let fluent_content = fluent_resource.to_source();
-    
+
     fs::write(output_path, fluent_content)?;
     Ok(())
 }
 
 pub fn android_to_fluent_with_original(
-    xml_input_path: &Path, 
-    fluent_output_path: &Path, 
-    original_fluent_path: &Path
+    xml_input_path: &Path,
+    fluent_output_path: &Path,
+    original_fluent_path: &Path,
 ) -> Result<()> {
     let xml_content = fs::read_to_string(xml_input_path)?;
     let android_resources = AndroidResources::from_xml(&xml_content)?;
-    
+
     // Parse the original Fluent file to extract variable mappings and comments
     let original_fluent_content = fs::read_to_string(original_fluent_path)?;
     let original_fluent_resource = FluentResource::from_source(&original_fluent_content)?;
-    
+
     let conversion_context = ConversionContext::from_original_fluent(&original_fluent_resource)?;
     let fluent_resource = convert_android_to_fluent(&android_resources, &conversion_context)?;
     let fluent_content = fluent_resource.to_source();
-    
+
     fs::write(fluent_output_path, fluent_content)?;
     Ok(())
 }
@@ -65,13 +68,13 @@ impl ConversionContext {
         let mut plural_selectors = HashMap::new();
         let mut string_variables = HashMap::new();
         let mut original_comments = HashMap::new();
-        
+
         for message in &fluent.messages {
             // Store original comments
             if let Some(comment) = &message.comment {
                 original_comments.insert(message.id.clone(), comment.clone());
             }
-            
+
             if let Some(value) = &message.value {
                 match classify_pattern(value) {
                     PatternType::Plural => {
@@ -85,7 +88,8 @@ impl ConversionContext {
                     }
                     PatternType::Simple => {
                         // Extract variable names from simple patterns
-                        let vars: Vec<String> = value.elements
+                        let vars: Vec<String> = value
+                            .elements
                             .iter()
                             .filter_map(|element| {
                                 if let FluentElement::Variable(var_name) = element {
@@ -95,7 +99,7 @@ impl ConversionContext {
                                 }
                             })
                             .collect();
-                        
+
                         if !vars.is_empty() {
                             string_variables.insert(message.id.clone(), vars);
                         }
@@ -103,22 +107,22 @@ impl ConversionContext {
                 }
             }
         }
-        
+
         Ok(Self {
             plural_selectors,
             string_variables,
             original_comments,
         })
     }
-    
+
     fn get_original_comment(&self, id: &str) -> Option<&String> {
         self.original_comments.get(id)
     }
-    
+
     fn get_string_variables(&self, id: &str) -> Option<&Vec<String>> {
         self.string_variables.get(id)
     }
-    
+
     fn get_plural_selector(&self, id: &str) -> Option<&String> {
         self.plural_selectors.get(id)
     }
@@ -131,7 +135,8 @@ enum PatternType {
 }
 
 fn classify_pattern(pattern: &FluentPattern) -> PatternType {
-    pattern.elements
+    pattern
+        .elements
         .iter()
         .find_map(|element| {
             if matches!(element, FluentElement::Plural { .. }) {
@@ -165,8 +170,8 @@ fn convert_fluent_to_android(fluent: &FluentResource) -> Result<AndroidResources
 }
 
 fn convert_android_to_fluent(
-    android: &AndroidResources, 
-    context: &ConversionContext
+    android: &AndroidResources,
+    context: &ConversionContext,
 ) -> Result<FluentResource> {
     let mut fluent_messages = Vec::new();
 
@@ -222,7 +227,8 @@ fn convert_plural_pattern_to_android(
     message: &FluentMessage,
     pattern: &FluentPattern,
 ) -> Result<AndroidPlural> {
-    let plural_element = pattern.elements
+    let plural_element = pattern
+        .elements
         .iter()
         .find_map(|element| {
             if let FluentElement::Plural { selector, variants } = element {
@@ -238,7 +244,8 @@ fn convert_plural_pattern_to_android(
     let variable_mapping = HashMap::new(); // No longer needed since we keep variables as-is
 
     for (quantity, variant_pattern) in variants {
-        let android_value = convert_pattern_to_android_text_keeping_fluent_variables(variant_pattern)?;
+        let android_value =
+            convert_pattern_to_android_text_keeping_fluent_variables(variant_pattern)?;
         android_items.insert(map_fluent_to_android_quantity(quantity), android_value);
     }
 
@@ -281,8 +288,8 @@ fn convert_pattern_to_android_text_keeping_fluent_variables(
 }
 
 fn convert_android_string_to_fluent(
-    android_string: &AndroidString, 
-    context: &ConversionContext
+    android_string: &AndroidString,
+    context: &ConversionContext,
 ) -> Result<FluentMessage> {
     let original_variables = context.get_string_variables(&android_string.name);
     let fluent_pattern = convert_android_text_to_fluent_pattern(
@@ -291,7 +298,8 @@ fn convert_android_string_to_fluent(
         original_variables,
     )?;
 
-    let comment = context.get_original_comment(&android_string.name)
+    let comment = context
+        .get_original_comment(&android_string.name)
         .cloned()
         .or_else(|| android_string.comment.clone());
 
@@ -304,12 +312,12 @@ fn convert_android_string_to_fluent(
 }
 
 fn convert_android_plural_to_fluent(
-    android_plural: &AndroidPlural, 
-    context: &ConversionContext
+    android_plural: &AndroidPlural,
+    context: &ConversionContext,
 ) -> Result<FluentMessage> {
     let selector = determine_plural_selector(android_plural, context);
     let effective_mapping = create_effective_mapping(android_plural, &selector);
-    
+
     let mut variants = HashMap::new();
     for (quantity, android_text) in &android_plural.items {
         let variant_pattern = convert_android_text_to_fluent_pattern(
@@ -321,15 +329,16 @@ fn convert_android_plural_to_fluent(
         variants.insert(fluent_quantity, variant_pattern);
     }
 
-    let plural_element = FluentElement::Plural { 
-        selector: selector.clone(), 
-        variants 
+    let plural_element = FluentElement::Plural {
+        selector: selector.clone(),
+        variants,
     };
     let pattern = FluentPattern {
         elements: vec![plural_element],
     };
 
-    let comment = context.get_original_comment(&android_plural.name)
+    let comment = context
+        .get_original_comment(&android_plural.name)
         .cloned()
         .or_else(|| android_plural.comment.clone());
 
@@ -342,21 +351,21 @@ fn convert_android_plural_to_fluent(
 }
 
 fn determine_plural_selector(
-    android_plural: &AndroidPlural, 
-    context: &ConversionContext
+    android_plural: &AndroidPlural,
+    context: &ConversionContext,
 ) -> String {
     // Try to get from context first
     if let Some(selector) = context.get_plural_selector(&android_plural.name) {
         return selector.clone();
     }
-    
+
     // Try to extract from FluentVariable comment
     if let Some(comment) = &android_plural.comment {
         if let Some(selector) = extract_fluent_variable_from_comment(comment) {
             return selector;
         }
     }
-    
+
     // Fallback to default count variable
     DEFAULT_COUNT_VARIABLE.to_string()
 }
@@ -364,7 +373,7 @@ fn determine_plural_selector(
 fn extract_fluent_variable_from_comment(comment: &str) -> Option<String> {
     // Look for "FluentVariable: {$variableName}" pattern
     let re = Regex::new(r"FluentVariable:\s*\{\$([a-zA-Z_][a-zA-Z0-9_]*)\}").unwrap();
-    
+
     for line in comment.lines() {
         if let Some(captures) = re.captures(line.trim()) {
             if let Some(var_name) = captures.get(1) {
@@ -372,13 +381,13 @@ fn extract_fluent_variable_from_comment(comment: &str) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
 fn create_effective_mapping(
-    android_plural: &AndroidPlural, 
-    _selector: &str
+    android_plural: &AndroidPlural,
+    _selector: &str,
 ) -> HashMap<String, String> {
     // Since we now use Fluent variables directly, we don't need complex mapping logic
     // Just return the existing mapping for any legacy support
@@ -398,25 +407,25 @@ fn convert_android_text_to_fluent_pattern(
 
     let mut elements = Vec::new();
     let mut last_end = 0;
-    
+
     // Handle Fluent variables
     for mat in fluent_var_regex.find_iter(&formatted_text) {
         // Add text before variable
         add_text_element_if_not_empty(&mut elements, &formatted_text[last_end..mat.start()]);
-        
+
         // Extract variable name from {$variableName}
         if let Some(captures) = fluent_var_regex.captures(mat.as_str()) {
             if let Some(var_name) = captures.get(1) {
                 elements.push(FluentElement::Variable(var_name.as_str().to_string()));
             }
         }
-        
+
         last_end = mat.end();
     }
-    
+
     // Add remaining text
     add_text_element_if_not_empty(&mut elements, &formatted_text[last_end..]);
-    
+
     // Handle case with no variables
     if elements.is_empty() {
         elements.push(FluentElement::Text(formatted_text));
@@ -462,12 +471,15 @@ fn map_fluent_to_android_quantity(fluent_quantity: &str) -> String {
         // Keep named forms as-is (they should already be valid Android quantities)
         "zero" | "one" | "two" | "few" | "many" | "other" => fluent_quantity,
         // For any other numeric values or unknown quantities, map to "other"
-        _ => if fluent_quantity.chars().all(|c| c.is_ascii_digit()) {
-            "other"
-        } else {
-            fluent_quantity
+        _ => {
+            if fluent_quantity.chars().all(|c| c.is_ascii_digit()) {
+                "other"
+            } else {
+                fluent_quantity
+            }
         }
-    }.to_string()
+    }
+    .to_string()
 }
 
 /// Map Android quantity names back to Fluent quantity keys for round-trip conversion
@@ -478,15 +490,16 @@ fn map_android_to_fluent_quantity(android_quantity: &str) -> String {
         "two" => "2",
         "few" | "many" | "other" => android_quantity,
         _ => android_quantity,
-    }.to_string()
+    }
+    .to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use tempfile::tempdir;
     use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn test_fluent_to_android_file_simple() {
@@ -540,9 +553,11 @@ greeting = Hello, {$name}!
 
         // Fluent to Android
         assert!(fluent_to_android(&original_ftl_path, &xml_path).is_ok());
-        
+
         // Android to Fluent with original context for better variable name preservation
-        assert!(android_to_fluent_with_original(&xml_path, &final_ftl_path, &original_ftl_path).is_ok());
+        assert!(
+            android_to_fluent_with_original(&xml_path, &final_ftl_path, &original_ftl_path).is_ok()
+        );
 
         let final_content = fs::read_to_string(&final_ftl_path).unwrap();
         assert!(final_content.contains("hello = Hello World"));
@@ -569,7 +584,9 @@ item_count = {$count ->
         assert!(fluent_to_android(&original_ftl_path, &xml_path).is_ok());
 
         // Android to Fluent with context
-        assert!(android_to_fluent_with_original(&xml_path, &final_ftl_path, &original_ftl_path).is_ok());
+        assert!(
+            android_to_fluent_with_original(&xml_path, &final_ftl_path, &original_ftl_path).is_ok()
+        );
 
         let final_content = fs::read_to_string(final_ftl_path).unwrap();
         // Built-in serializer uses multiline formatting for plurals
@@ -578,7 +595,7 @@ item_count = {$count ->
         assert!(final_content.contains("[one] { $count } item"));
         assert!(final_content.contains("*[other] { $count } items"));
     }
-    
+
     #[test]
     fn test_fluent_to_android_with_comments_file() {
         let temp_dir = tempdir().unwrap();
@@ -599,7 +616,7 @@ item_count = {$count ->
         assert!(fluent_to_android(&input_path, &output_path).is_ok());
 
         let xml_content = fs::read_to_string(&output_path).unwrap();
-        
+
         // Check that comments are preserved in the XML output
         // Note: The comment extraction captures the last comment before each message
         assert!(xml_content.contains("This is a comment for a simple string"));
@@ -618,7 +635,10 @@ item_count = {$count ->
     #[test]
     fn test_unescape_android_string() {
         // Test HTML entity unescaping (main case now)
-        assert_eq!(unescape_android_string("Hello &quot;World&quot;"), "Hello \"World\"");
+        assert_eq!(
+            unescape_android_string("Hello &quot;World&quot;"),
+            "Hello \"World\""
+        );
         assert_eq!(unescape_android_string("Line1\\nLine2"), "Line1\nLine2");
         assert_eq!(unescape_android_string("Tab\\tHere"), "Tab\tHere");
         assert_eq!(unescape_android_string("Don&apos;t"), "Don't");
@@ -627,8 +647,8 @@ item_count = {$count ->
 
     #[test]
     fn test_convert_simple_pattern_to_android() {
-        use crate::shared::fluent_data::{FluentMessage, FluentPattern, FluentElement};
-        
+        use crate::shared::fluent_data::{FluentElement, FluentMessage, FluentPattern};
+
         let message = FluentMessage {
             id: "greeting".to_string(),
             value: Some(FluentPattern {
@@ -641,53 +661,57 @@ item_count = {$count ->
             attributes: HashMap::new(),
             comment: Some("This is a greeting message".to_string()),
         };
-        
+
         let pattern = message.value.as_ref().unwrap();
         let android_string = convert_simple_pattern_to_android(&message, pattern).unwrap();
-        
+
         assert_eq!(android_string.name, "greeting");
         assert_eq!(android_string.value, "Hello, {$name}!");
         assert_eq!(android_string.variable_mapping.len(), 0); // No mapping needed since we keep variables as-is
-        assert_eq!(android_string.comment, Some("This is a greeting message".to_string()));
+        assert_eq!(
+            android_string.comment,
+            Some("This is a greeting message".to_string())
+        );
     }
 
     #[test]
     fn test_convert_android_text_to_fluent_pattern() {
         let variable_mapping = HashMap::new(); // Not needed for Fluent variables
-        
+
         let pattern = convert_android_text_to_fluent_pattern(
             "Hello {$name}, you have {$count} items",
             &variable_mapping,
             None,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert_eq!(pattern.elements.len(), 5);
-        
+
         // Check the structure: "Hello " + {$name} + ", you have " + {$count} + " items"
         if let FluentElement::Text(text) = &pattern.elements[0] {
             assert_eq!(text, "Hello ");
         } else {
             panic!("Expected text element");
         }
-        
+
         if let FluentElement::Variable(var) = &pattern.elements[1] {
             assert_eq!(var, "name");
         } else {
             panic!("Expected variable element");
         }
-        
+
         if let FluentElement::Text(text) = &pattern.elements[2] {
             assert_eq!(text, ", you have ");
         } else {
             panic!("Expected text element");
         }
-        
+
         if let FluentElement::Variable(var) = &pattern.elements[3] {
             assert_eq!(var, "count");
         } else {
             panic!("Expected variable element");
         }
-        
+
         if let FluentElement::Text(text) = &pattern.elements[4] {
             assert_eq!(text, " items");
         } else {
@@ -697,14 +721,17 @@ item_count = {$count ->
 
     #[test]
     fn test_classify_pattern() {
-        use crate::shared::fluent_data::{FluentPattern, FluentElement};
-        
+        use crate::shared::fluent_data::{FluentElement, FluentPattern};
+
         // Simple pattern
         let simple_pattern = FluentPattern {
             elements: vec![FluentElement::Text("Hello".to_string())],
         };
-        assert!(matches!(classify_pattern(&simple_pattern), PatternType::Simple));
-        
+        assert!(matches!(
+            classify_pattern(&simple_pattern),
+            PatternType::Simple
+        ));
+
         // Plural pattern
         let plural_pattern = FluentPattern {
             elements: vec![FluentElement::Plural {
@@ -712,13 +739,16 @@ item_count = {$count ->
                 variants: HashMap::new(),
             }],
         };
-        assert!(matches!(classify_pattern(&plural_pattern), PatternType::Plural));
+        assert!(matches!(
+            classify_pattern(&plural_pattern),
+            PatternType::Plural
+        ));
     }
 
     #[test]
     fn test_positional_parameters_fluent_to_android() {
-        use crate::shared::fluent_data::{FluentMessage, FluentPattern, FluentElement};
-        
+        use crate::shared::fluent_data::{FluentElement, FluentMessage, FluentPattern};
+
         // Test with multiple variables to ensure all use Fluent variable format
         let message = FluentMessage {
             id: "multi_vars".to_string(),
@@ -736,64 +766,68 @@ item_count = {$count ->
             attributes: HashMap::new(),
             comment: None,
         };
-        
+
         let pattern = message.value.as_ref().unwrap();
         let android_string = convert_simple_pattern_to_android(&message, pattern).unwrap();
-        
+
         assert_eq!(android_string.name, "multi_vars");
-        assert_eq!(android_string.value, "Welcome {$name}, you have {$count} messages in {$folder}!");
+        assert_eq!(
+            android_string.value,
+            "Welcome {$name}, you have {$count} messages in {$folder}!"
+        );
         assert_eq!(android_string.variable_mapping.len(), 0); // No mapping needed since we keep variables as-is
     }
 
     #[test]
     fn test_positional_parameters_android_to_fluent() {
         let variable_mapping = HashMap::new(); // Not needed for Fluent variables
-        
+
         let pattern = convert_android_text_to_fluent_pattern(
             "Welcome {$name}, you have {$count} messages in {$folder}!",
             &variable_mapping,
             None,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         assert_eq!(pattern.elements.len(), 7);
-        
+
         // Check the structure
         if let FluentElement::Text(text) = &pattern.elements[0] {
             assert_eq!(text, "Welcome ");
         } else {
             panic!("Expected text element");
         }
-        
+
         if let FluentElement::Variable(var) = &pattern.elements[1] {
             assert_eq!(var, "name");
         } else {
             panic!("Expected variable element");
         }
-        
+
         if let FluentElement::Text(text) = &pattern.elements[2] {
             assert_eq!(text, ", you have ");
         } else {
             panic!("Expected text element");
         }
-        
+
         if let FluentElement::Variable(var) = &pattern.elements[3] {
             assert_eq!(var, "count");
         } else {
             panic!("Expected variable element");
         }
-        
+
         if let FluentElement::Text(text) = &pattern.elements[4] {
             assert_eq!(text, " messages in ");
         } else {
             panic!("Expected text element");
         }
-        
+
         if let FluentElement::Variable(var) = &pattern.elements[5] {
             assert_eq!(var, "folder");
         } else {
             panic!("Expected variable element");
         }
-        
+
         if let FluentElement::Text(text) = &pattern.elements[6] {
             assert_eq!(text, "!");
         } else {
@@ -805,19 +839,16 @@ item_count = {$count ->
     fn test_multiline_android_to_fluent_formatting() {
         // Test that multiline Android strings are correctly formatted with proper indentation
         let variable_mapping = HashMap::new();
-        
+
         // Test multiline Android text (using \n as Android would store it)
         let android_text = "This is line one\\nThis is line two\\nThis is line three";
-        
-        let pattern = convert_android_text_to_fluent_pattern(
-            android_text,
-            &variable_mapping,
-            None,
-        ).unwrap();
-        
+
+        let pattern =
+            convert_android_text_to_fluent_pattern(android_text, &variable_mapping, None).unwrap();
+
         // The pattern should have 1 text element containing the properly formatted multiline text
         assert_eq!(pattern.elements.len(), 1);
-        
+
         // Check that the element contains the expected multiline text with proper formatting
         if let FluentElement::Text(text) = &pattern.elements[0] {
             // The text should be formatted with proper indentation for Fluent
@@ -826,7 +857,7 @@ item_count = {$count ->
         } else {
             panic!("Expected text element");
         }
-        
+
         // Test that when this pattern is converted to Fluent source, it has proper indentation
         let temp_resource = FluentResource {
             messages: vec![FluentMessage {
@@ -836,19 +867,22 @@ item_count = {$count ->
                 comment: None,
             }],
         };
-        
+
         let fluent_content = temp_resource.to_source();
-        
+
         // The generated Fluent should have proper indentation
         assert!(fluent_content.contains("test-multiline ="));
         assert!(fluent_content.contains("This is line one"));
         assert!(fluent_content.contains("    This is line two"));
         assert!(fluent_content.contains("    This is line three"));
-        
+
         // Verify the generated Fluent can be parsed back without errors
         let reparsed = FluentResource::from_source(&fluent_content);
-        assert!(reparsed.is_ok(), "Generated multiline Fluent should be parseable without errors");
-        
+        assert!(
+            reparsed.is_ok(),
+            "Generated multiline Fluent should be parseable without errors"
+        );
+
         let reparsed_resource = reparsed.unwrap();
         assert_eq!(reparsed_resource.messages.len(), 1);
         assert_eq!(reparsed_resource.messages[0].id, "test-multiline");
@@ -871,7 +905,7 @@ item_count = {$count ->
         assert!(result.is_ok());
 
         let xml_content = fs::read_to_string(&output_path).unwrap();
-        
+
         // Verify the Android XML includes FluentVariable comment and Fluent variables
         assert!(xml_content.contains("FluentVariable: {$photoCount}"));
         assert!(xml_content.contains("{$userName} added {$photoCount} new photo to {$album}."));
