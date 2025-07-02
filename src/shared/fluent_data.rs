@@ -2,7 +2,7 @@ use crate::shared::{
     fluent_resource_parser::FluentResourceParser, fluent_resource_writer::FluentResourceWriter,
 };
 use anyhow::{anyhow, Result};
-use fluent_syntax::ast::Entry;
+use fluent_syntax::ast::{Entry, Pattern};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -54,6 +54,18 @@ impl From<fluent_syntax::ast::Message<&str>> for FluentMessage {
 #[derive(Debug, Clone)]
 pub struct FluentPattern {
     pub elements: Vec<FluentElement>,
+}
+
+impl From<&Pattern<&str>> for FluentPattern {
+    fn from(pattern: &Pattern<&str>) -> Self {
+        Self {
+            elements: pattern
+                .elements
+                .iter()
+                .map(FluentResourceParser::convert_pattern_element)
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

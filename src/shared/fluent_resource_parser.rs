@@ -30,8 +30,8 @@ impl FluentResourceParser {
         attributes: Vec<fluent_syntax::ast::Attribute<&str>>,
     ) -> HashMap<String, FluentPattern> {
         attributes
-            .into_iter()
-            .map(|attr| (attr.id.name.to_string(), Self::convert_pattern(&attr.value)))
+            .iter()
+            .map(|attr| (attr.id.name.to_string(), (&attr.value).into()))
             .collect()
     }
 
@@ -52,7 +52,7 @@ impl FluentResourceParser {
         }
     }
 
-    fn convert_pattern_element(element: &PatternElement<&str>) -> FluentElement {
+    pub fn convert_pattern_element(element: &PatternElement<&str>) -> FluentElement {
         match element {
             PatternElement::TextElement { value } => FluentElement::Text(value.to_string()),
             PatternElement::Placeable { expression } => Self::convert_expression(expression),
