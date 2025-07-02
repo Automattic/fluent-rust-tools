@@ -1,6 +1,6 @@
 use crate::shared::fluent_data::{FluentElement, FluentMessage, FluentPattern, FluentResource};
 use anyhow::Result;
-use fluent_syntax::ast::{Entry, InlineExpression, PatternElement};
+use fluent_syntax::ast::{Entry, InlineExpression};
 use std::collections::HashMap;
 
 // Constants for better maintainability
@@ -39,13 +39,6 @@ impl FluentResourceParser {
         match fluent_syntax::parser::parse(source) {
             Ok(resource) => Ok(resource),
             Err((_resource, errors)) => Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors)),
-        }
-    }
-
-    pub fn convert_pattern_element(element: &PatternElement<&str>) -> FluentElement {
-        match element {
-            PatternElement::TextElement { value } => FluentElement::Text(value.to_string()),
-            PatternElement::Placeable { expression } => expression.into(),
         }
     }
 

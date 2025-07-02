@@ -2,7 +2,7 @@ use crate::shared::{
     fluent_resource_parser::FluentResourceParser, fluent_resource_writer::FluentResourceWriter,
 };
 use anyhow::{anyhow, Result};
-use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern};
+use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
 use std::collections::HashMap;
 
 use super::fluent_resource_parser::UNSUPPORTED_PLACEHOLDER;
@@ -59,11 +59,7 @@ pub struct FluentPattern {
 impl From<&Pattern<&str>> for FluentPattern {
     fn from(pattern: &Pattern<&str>) -> Self {
         Self {
-            elements: pattern
-                .elements
-                .iter()
-                .map(FluentResourceParser::convert_pattern_element)
-                .collect(),
+            elements: pattern.elements.iter().map(Into::into).collect(),
         }
     }
 }
@@ -88,6 +84,15 @@ impl From<&Expression<&str>> for FluentElement {
                 FluentResourceParser::convert_select_expression(selector, variants)
             }
             _ => FluentElement::Text(UNSUPPORTED_PLACEHOLDER.to_string()),
+        }
+    }
+}
+
+impl From<&PatternElement<&str>> for FluentElement {
+    fn from(element: &PatternElement<&str>) -> Self {
+        match element {
+            PatternElement::TextElement { value } => FluentElement::Text(value.to_string()),
+            PatternElement::Placeable { expression } => expression.into(),
         }
     }
 }
