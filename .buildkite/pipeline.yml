@@ -77,7 +77,7 @@ steps:
   #################
   - label: ":rubygems: Publish to RubyGems"
     key: gem-push
-    if: "false" # temporarily disable Gem publishing // build.tag != null
+    if: build.tag != null
     depends_on:
      - release-binaries
     command: .buildkite/gem-push.sh
