@@ -256,32 +256,25 @@ fn convert_main_message_value(
     locale: &str,
 ) -> Result<()> {
     let target_text = extract_pattern_text(pattern);
-    let comments = message.comment.as_ref().unwrap_or(&String::new()).clone();
+    let comments = message.comment.as_ref().cloned().unwrap_or_default();
 
-    if let Some(plural_info) = extract_plural_info(pattern) {
-        convert_plural_message(
-            catalog,
-            message,
-            &plural_info,
-            source_message,
-            &comments,
-            locale,
-        )?;
+    let message = if let Some(plural_info) = extract_plural_info(pattern) {
+        convert_plural_message(message, &plural_info, source_message, &comments, locale)?
     } else {
-        convert_singular_message(catalog, message, &target_text, source_message, &comments)?;
-    }
+        convert_singular_message(message, &target_text, source_message, &comments)?
+    };
+    catalog.append_or_update(message);
 
     Ok(())
 }
 
 fn convert_plural_message(
-    catalog: &mut Catalog,
     message: &FluentMessage,
     plural_info: &PluralInfo,
     source_message: Option<&FluentMessage>,
     comments: &str,
     locale: &str,
-) -> Result<()> {
+) -> Result<PoMessage> {
     // Simplified logic: directly get plural forms without multiple wrapper functions
     let (msgid, msgid_plural, msgstr_forms) = if let Some(source_msg) = source_message {
         // Check if source has plural info
@@ -316,18 +309,15 @@ fn convert_plural_message(
     if !combined_comments.is_empty() {
         msg_builder.with_comments(combined_comments);
     }
-
-    catalog.append_or_update(msg_builder.done());
-    Ok(())
+    Ok(msg_builder.done())
 }
 
 fn convert_singular_message(
-    catalog: &mut Catalog,
     message: &FluentMessage,
     target_text: &str,
     source_message: Option<&FluentMessage>,
     comments: &str,
-) -> Result<()> {
+) -> Result<PoMessage> {
     let msgid = get_source_text_or_target(source_message, target_text);
 
     let mut msg_builder = PoMessage::build_singular();
@@ -340,8 +330,7 @@ fn convert_singular_message(
         msg_builder.with_comments(comments.to_string());
     }
 
-    catalog.append_or_update(msg_builder.done());
-    Ok(())
+    Ok(msg_builder.done())
 }
 
 fn convert_message_attributes(
