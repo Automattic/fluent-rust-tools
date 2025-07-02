@@ -42,9 +42,7 @@ impl From<fluent_syntax::ast::Message<&str>> for FluentMessage {
 
         Self {
             id: message_id,
-            value: message
-                .value
-                .map(|pattern| FluentResourceParser::convert_pattern(&pattern)),
+            value: message.value.as_ref().map(Into::into),
             attributes: FluentResourceParser::convert_attributes(message.attributes),
             comment,
         }
