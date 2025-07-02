@@ -26,22 +26,6 @@ impl FluentResourceParser {
             .collect()
     }
 
-    pub fn process_message(message: fluent_syntax::ast::Message<&str>) -> FluentMessage {
-        let message_id = message.id.name.to_string();
-
-        // Only use comments directly associated with the message by the fluent-syntax parser
-        let comment = message
-            .comment
-            .map(|msg_comment| msg_comment.content.join("\n"));
-
-        FluentMessage {
-            id: message_id,
-            value: message.value.map(|pattern| Self::convert_pattern(&pattern)),
-            attributes: Self::convert_attributes(message.attributes),
-            comment,
-        }
-    }
-
     pub fn convert_attributes(
         attributes: Vec<fluent_syntax::ast::Attribute<&str>>,
     ) -> HashMap<String, FluentPattern> {

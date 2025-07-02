@@ -18,7 +18,7 @@ impl TryFrom<Entry<&str>> for FluentMessage {
 
     fn try_from(entry: Entry<&str>) -> Result<Self> {
         match entry {
-            Entry::Message(message) => Ok(FluentResourceParser::process_message(message)),
+            Entry::Message(message) => Ok(message.into()),
             Entry::Comment(_) => Err(anyhow!(
                 "Standalone comments are ignored - only use parser's built-in comment association"
             )),
