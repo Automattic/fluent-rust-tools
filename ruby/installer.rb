@@ -22,6 +22,7 @@ class FluentToolsInstaller
   end
 
   # Main installation method
+  # rubocop:disable Naming/PredicateMethod
   def install!
     log_info "🚀 Installing #{FluentTools::Utils::BINARY_NAME}#{" `#{@version}`" if @version}..."
 
@@ -43,6 +44,7 @@ class FluentToolsInstaller
       false
     end
   end
+  # rubocop:enable Naming/PredicateMethod
 
   private
 
