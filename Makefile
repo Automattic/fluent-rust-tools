@@ -124,6 +124,18 @@ unit-test:
 cli-test:
 	@./scripts/cli-test.sh
 
+lint-rust:
+	@# Help: Run the linter for Rust.
+	$(rust_docker_run) /bin/bash -c "rustup component add clippy && cargo clippy --all -- -D warnings && cargo clippy --tests --all -- -D warnings"
+
+fmt-rust:
+	@# Help: Run the formatter for Rust.
+	$(rust_docker_run) /bin/bash -c "rustup component add rustfmt && cargo fmt"
+
+fmt-check-rust:
+	@# Help: Check formatting for Rust.
+	$(rust_docker_run) /bin/bash -c "rustup component add rustfmt && cargo fmt --all -- --check"
+
 # Clean up build artifacts and temporary files
 clean:
 	@echo "🧹 Cleaning up build artifacts..."
@@ -145,6 +157,9 @@ help:
 	@echo "  test                   - Run all tests (unit and CLI) using Docker"
 	@echo "  unit-test              - Run unit tests only using Docker"
 	@echo "  cli-test               - Test CLI with sample data for both Android and PO formats using Docker"
+	@echo "  lint-rust              - Run the linter for Rust"
+	@echo "  fmt-rust               - Run the formatter for Rust"
+	@echo "  fmt-check-rust         - Check formatting for Rust"
 	@echo "  clean                  - Clean build artifacts and temporary files using Docker"
 	@echo "  help                   - Show this help message"
 	@echo ""
