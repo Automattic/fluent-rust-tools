@@ -73,40 +73,18 @@ FluentTools.po_to_fluent('input.po', 'output.ftl')
 ├── src/
 │   ├── main.rs              # Main CLI entry point
 │   ├── android/             # Android XML conversion modules
-│   │   ├── mod.rs
-│   │   ├── android_format.rs
-│   │   └── converter.rs
 │   ├── po/                  # PO conversion modules
-│   │   ├── mod.rs
-│   │   ├── po_format.rs
-│   │   └── converter.rs
-│   └── shared/              # Shared modules
-│       ├── mod.rs
-│       ├── fluent_parser.rs
-│       └── error.rs
+│   └── shared/              # Shared modules, Fluent parser
 ├── ruby/                    # Ruby gem wrapper
-│   ├── lib/
-│   │   ├── fluent_tools.rb
-│   │   └── fluent_tools/
-│   ├── exe/
-│   ├── ext/
-│   ├── spec/                # Test specs
-│   ├── fluent-tools.gemspec
-│   └── installer.rb
-├── tests/
-│   └── data/                # Test data files
-├── Cargo.toml              # Rust project configuration
-├── Cargo.lock              # Rust dependency lock file
-├── LICENSE                 # License file
-└── .gitignore              # Git ignore rules
 ```
 
 ## Features
 
 ### Android XML Support
 - Convert Fluent messages to Android string resources
-- Handle plurals, variables
-- Preserve comments and variable mappings
+- Handle plurals
+- Preserve comments
+- Fluent variables are forwarded as-is
 - Support for bidirectional conversion
 
 ### PO Format Support
