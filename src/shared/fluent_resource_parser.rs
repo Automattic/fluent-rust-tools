@@ -21,31 +21,12 @@ impl FluentResourceParser {
     fn process_entries(entries: Vec<Entry<&str>>) -> Vec<FluentMessage> {
         entries
             .into_iter()
-            .flat_map(|entry| {
-                match entry {
-                    Entry::Message(message) => Some(Self::process_message(message)),
-                    Entry::Comment(_) => {
-                        // Standalone comments are ignored - only use parser's built-in comment association
-                        None
-                    }
-                    Entry::GroupComment(_) | Entry::ResourceComment(_) => {
-                        // Ignore group and resource comments for now
-                        None
-                    }
-                    Entry::Term(_) => {
-                        // Handle terms if needed in the future
-                        None
-                    }
-                    Entry::Junk { .. } => {
-                        // Ignore junk entries
-                        None
-                    }
-                }
-            })
+            .map(TryFrom::try_from)
+            .flat_map(Result::ok)
             .collect()
     }
 
-    fn process_message(message: fluent_syntax::ast::Message<&str>) -> FluentMessage {
+    pub fn process_message(message: fluent_syntax::ast::Message<&str>) -> FluentMessage {
         let message_id = message.id.name.to_string();
 
         // Only use comments directly associated with the message by the fluent-syntax parser

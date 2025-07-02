@@ -1,6 +1,8 @@
-use crate::shared::fluent_resource_parser::FluentResourceParser;
-use crate::shared::fluent_resource_writer::FluentResourceWriter;
-use anyhow::Result;
+use crate::shared::{
+    fluent_resource_parser::FluentResourceParser, fluent_resource_writer::FluentResourceWriter,
+};
+use anyhow::{anyhow, Result};
+use fluent_syntax::ast::Entry;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -9,6 +11,24 @@ pub struct FluentMessage {
     pub value: Option<FluentPattern>,
     pub attributes: HashMap<String, FluentPattern>,
     pub comment: Option<String>,
+}
+
+impl TryFrom<Entry<&str>> for FluentMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(entry: Entry<&str>) -> Result<Self> {
+        match entry {
+            Entry::Message(message) => Ok(FluentResourceParser::process_message(message)),
+            Entry::Comment(_) => Err(anyhow!(
+                "Standalone comments are ignored - only use parser's built-in comment association"
+            )),
+            Entry::GroupComment(_) | Entry::ResourceComment(_) => {
+                Err(anyhow!("Ignore group and resource comments for now"))
+            }
+            Entry::Term(_) => Err(anyhow!("Handle terms if needed in the future")),
+            Entry::Junk { .. } => Err(anyhow!("Ignore junk entries")),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
