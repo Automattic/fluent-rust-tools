@@ -1,7 +1,7 @@
 use crate::shared::{
     fluent_resource_parser::FluentResourceParser, fluent_resource_writer::FluentResourceWriter,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
 use std::collections::HashMap;
 
