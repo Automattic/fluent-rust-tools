@@ -23,7 +23,11 @@ pub struct XmlString {
     #[serde(rename = "@name")]
     pub name: String,
 
-    #[serde(rename = "@translatable", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "@translatable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub translatable: Option<String>,
 
     #[serde(rename = "$text")]
@@ -82,22 +86,21 @@ impl AndroidResources {
     pub fn from_xml(xml_content: &str) -> Result<Self> {
         // Extract comments using regex before serde parsing
         let comments = extract_comments_from_xml(xml_content)?;
-        
+
         // Deserialize the main structure using pure serde
         let xml_resources: XmlResources = quick_xml::de::from_str(xml_content)?;
-        
+
         let mut resources = AndroidResources::new();
-        
+
         // Process each resource item
         for (index, item) in xml_resources.items.iter().enumerate() {
             let comment = comments.get(&index).cloned();
             let variable_mapping = parse_variable_mapping(&comment)?;
-            
+
             match item {
                 XmlResource::String(xml_string) => {
-                    let translatable = xml_string.translatable.as_ref()
-                        .map(|t| t == "true");
-                    
+                    let translatable = xml_string.translatable.as_ref().map(|t| t == "true");
+
                     resources.strings.push(AndroidString {
                         name: xml_string.name.clone(),
                         value: xml_string.value.clone(),
@@ -108,11 +111,11 @@ impl AndroidResources {
                 }
                 XmlResource::Plurals(xml_plurals) => {
                     let mut items = HashMap::new();
-                    
+
                     for item in &xml_plurals.items {
                         items.insert(item.quantity.clone(), item.value.clone());
                     }
-                    
+
                     resources.plurals.push(AndroidPlural {
                         name: xml_plurals.name.clone(),
                         items,
@@ -128,21 +131,27 @@ impl AndroidResources {
 
     // `serde` does not parse / write comments; use `quick_xml` for writing
     pub fn to_xml(&self) -> Result<String> {
-        use quick_xml::{events::Event, Writer};
-        
+        use quick_xml::{Writer, events::Event};
+
         let mut writer = Writer::new_with_indent(Vec::new(), b' ', 2);
-        
+
         // Write XML declaration
-        writer.write_event(Event::Decl(quick_xml::events::BytesDecl::new("1.0", Some("utf-8"), None)))?;
-        
+        writer.write_event(Event::Decl(quick_xml::events::BytesDecl::new(
+            "1.0",
+            Some("utf-8"),
+            None,
+        )))?;
+
         // Start resources element
-        writer.write_event(Event::Start(quick_xml::events::BytesStart::new("resources")))?;
+        writer.write_event(Event::Start(quick_xml::events::BytesStart::new(
+            "resources",
+        )))?;
 
         // Write strings with comments
         for string in &self.strings {
             write_string_with_comment(&mut writer, string)?;
         }
-        
+
         // Write plural strings with comments
         for plural in &self.plurals {
             write_plural_with_comment(&mut writer, plural)?;
@@ -156,9 +165,12 @@ impl AndroidResources {
 }
 
 // Write a string element with its comment using the library's proper comment support
-fn write_string_with_comment(writer: &mut quick_xml::Writer<Vec<u8>>, string: &AndroidString) -> Result<()> {
+fn write_string_with_comment(
+    writer: &mut quick_xml::Writer<Vec<u8>>,
+    string: &AndroidString,
+) -> Result<()> {
     use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
-    
+
     // Write comment if present using the library's Event::Comment
     if let Some(comment) = &string.comment {
         let formatted_comment = format_comment_for_xml(comment);
@@ -168,7 +180,7 @@ fn write_string_with_comment(writer: &mut quick_xml::Writer<Vec<u8>>, string: &A
     // Create string element with attributes
     let mut elem = BytesStart::new("string");
     elem.push_attribute(("name", string.name.as_str()));
-    
+
     // Only add translatable attribute when explicitly set to false
     if let Some(false) = string.translatable {
         elem.push_attribute(("translatable", "false"));
@@ -182,9 +194,12 @@ fn write_string_with_comment(writer: &mut quick_xml::Writer<Vec<u8>>, string: &A
 }
 
 // Write a plurals element with its comment using the library's proper comment support
-fn write_plural_with_comment(writer: &mut quick_xml::Writer<Vec<u8>>, plural: &AndroidPlural) -> Result<()> {
+fn write_plural_with_comment(
+    writer: &mut quick_xml::Writer<Vec<u8>>,
+    plural: &AndroidPlural,
+) -> Result<()> {
     use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
-    
+
     // Write comment if present using the library's Event::Comment
     if let Some(comment) = &plural.comment {
         let formatted_comment = format_comment_for_xml(comment);
@@ -203,7 +218,7 @@ fn write_plural_with_comment(writer: &mut quick_xml::Writer<Vec<u8>>, plural: &A
         if let Some(value) = plural.items.get(*quantity) {
             let mut item_elem = BytesStart::new("item");
             item_elem.push_attribute(("quantity", *quantity));
-            
+
             writer.write_event(Event::Start(item_elem))?;
             writer.write_event(Event::Text(BytesText::new(value)))?;
             writer.write_event(Event::End(BytesEnd::new("item")))?;
@@ -225,17 +240,17 @@ fn format_comment_for_xml(comment: &str) -> String {
 // `serde` does not parse comments; use `quick_xml` event-based parsing to extract the comments
 fn extract_comments_from_xml(xml_content: &str) -> Result<HashMap<usize, String>> {
     use quick_xml::{Reader, events::Event};
-    
+
     fn is_resource_element(name: &[u8]) -> bool {
         matches!(name, b"string" | b"plurals")
     }
-    
+
     let mut comments = HashMap::new();
     let mut reader = Reader::from_str(xml_content);
     let mut buf = Vec::new();
     let mut pending_comment = None;
     let mut resource_index = 0;
-    
+
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Comment(comment)) => {
@@ -258,25 +273,28 @@ fn extract_comments_from_xml(xml_content: &str) -> Result<HashMap<usize, String>
         }
         buf.clear();
     }
-    
+
     Ok(comments)
 }
 
 fn parse_variable_mapping(comment: &Option<String>) -> Result<HashMap<String, String>> {
     let mut mapping = HashMap::new();
-    
+
     if let Some(comment_text) = comment {
         // Parse patterns like "%s = {$message}" or "%1$d = {$num_downloads}"
         // The $ should only be present if a \d+ is also present
         let re = Regex::new(r"(%(?:\d+\$)?[sdif])\s*=\s*\{\$(\w+)\}").unwrap();
-        
+
         for captures in re.captures_iter(comment_text) {
             if let (Some(placeholder), Some(variable)) = (captures.get(1), captures.get(2)) {
-                mapping.insert(placeholder.as_str().to_string(), variable.as_str().to_string());
+                mapping.insert(
+                    placeholder.as_str().to_string(),
+                    variable.as_str().to_string(),
+                );
             }
         }
     }
-    
+
     Ok(mapping)
 }
 
@@ -310,7 +328,10 @@ mod tests {
         assert_eq!(resources.strings.len(), 1);
         assert_eq!(resources.strings[0].name, "greeting");
         assert_eq!(resources.strings[0].value, "Hello %s");
-        assert_eq!(resources.strings[0].variable_mapping.get("%s"), Some(&"name".to_string()));
+        assert_eq!(
+            resources.strings[0].variable_mapping.get("%s"),
+            Some(&"name".to_string())
+        );
     }
 
     #[test]
@@ -327,9 +348,18 @@ mod tests {
         let resources = AndroidResources::from_xml(xml).unwrap();
         assert_eq!(resources.plurals.len(), 1);
         assert_eq!(resources.plurals[0].name, "items");
-        assert_eq!(resources.plurals[0].items.get("one"), Some(&"%d item".to_string()));
-        assert_eq!(resources.plurals[0].items.get("other"), Some(&"%d items".to_string()));
-        assert_eq!(resources.plurals[0].variable_mapping.get("%d"), Some(&"count".to_string()));
+        assert_eq!(
+            resources.plurals[0].items.get("one"),
+            Some(&"%d item".to_string())
+        );
+        assert_eq!(
+            resources.plurals[0].items.get("other"),
+            Some(&"%d items".to_string())
+        );
+        assert_eq!(
+            resources.plurals[0].variable_mapping.get("%d"),
+            Some(&"count".to_string())
+        );
     }
 
     #[test]
@@ -348,7 +378,7 @@ mod tests {
     fn test_parse_variable_mapping_regex() {
         let comment = "%s = {$name}, %1$d = {$count}";
         let mapping = parse_variable_mapping(&Some(comment.to_string())).unwrap();
-        
+
         assert_eq!(mapping.get("%s"), Some(&"name".to_string()));
         assert_eq!(mapping.get("%1$d"), Some(&"count".to_string()));
     }
@@ -358,12 +388,12 @@ mod tests {
         // Test various Android placeholder formats
         let comment = "%s = {$name}, %d = {$count}, %2$s = {$message}, %1$f = {$price}";
         let mapping = parse_variable_mapping(&Some(comment.to_string())).unwrap();
-        
+
         assert_eq!(mapping.get("%s"), Some(&"name".to_string()));
         assert_eq!(mapping.get("%d"), Some(&"count".to_string()));
         assert_eq!(mapping.get("%2$s"), Some(&"message".to_string()));
         assert_eq!(mapping.get("%1$f"), Some(&"price".to_string()));
-        
+
         // Test that invalid patterns are not matched
         let invalid_comment = "%$ = {$invalid}, %abc = {$wrong}";
         let invalid_mapping = parse_variable_mapping(&Some(invalid_comment.to_string())).unwrap();
@@ -373,10 +403,10 @@ mod tests {
     #[test]
     fn test_generate_xml() {
         let mut resources = AndroidResources::new();
-        
+
         let mut variable_mapping = HashMap::new();
         variable_mapping.insert("%s".to_string(), "name".to_string());
-        
+
         resources.strings.push(AndroidString {
             name: "greeting".to_string(),
             value: "Hello %s".to_string(),
@@ -424,30 +454,48 @@ mod tests {
 </resources>"#;
 
         let resources = AndroidResources::from_xml(xml).unwrap();
-        
+
         // Check that we properly extracted 2 strings and 1 plural
         assert_eq!(resources.strings.len(), 2);
         assert_eq!(resources.plurals.len(), 1);
-        
+
         // Check comment association
         assert!(resources.strings[0].comment.is_some());
-        assert_eq!(resources.strings[0].comment.as_ref().unwrap(), "Variable mapping: %s = {$name}");
-        
+        assert_eq!(
+            resources.strings[0].comment.as_ref().unwrap(),
+            "Variable mapping: %s = {$name}"
+        );
+
         assert!(resources.strings[1].comment.is_some());
-        assert_eq!(resources.strings[1].comment.as_ref().unwrap(), "No variable mapping needed");
-        
+        assert_eq!(
+            resources.strings[1].comment.as_ref().unwrap(),
+            "No variable mapping needed"
+        );
+
         assert!(resources.plurals[0].comment.is_some());
-        assert!(resources.plurals[0].comment.as_ref().unwrap().contains("Multi-line comment"));
-        
+        assert!(
+            resources.plurals[0]
+                .comment
+                .as_ref()
+                .unwrap()
+                .contains("Multi-line comment")
+        );
+
         // Check variable mapping was extracted correctly
-        assert_eq!(resources.strings[0].variable_mapping.get("%s"), Some(&"name".to_string()));
-        assert_eq!(resources.plurals[0].variable_mapping.get("%d"), Some(&"count".to_string()));
+        assert_eq!(
+            resources.strings[0].variable_mapping.get("%s"),
+            Some(&"name".to_string())
+        );
+        assert_eq!(
+            resources.plurals[0].variable_mapping.get("%d"),
+            Some(&"count".to_string())
+        );
     }
 
     #[test]
     fn test_multiline_comment_formatting() {
         let mut resources = AndroidResources::new();
-        
+
         // Create a resource with a multiline comment
         resources.strings.push(AndroidString {
             name: "long-description".to_string(),
@@ -458,12 +506,12 @@ mod tests {
         });
 
         let xml = resources.to_xml().unwrap();
-        
+
         // Check that the comment has proper spacing and indentation
         assert!(xml.contains("<!-- Multi-line string with indentation"));
         assert!(xml.contains("     with a multi-line comment"));
         assert!(xml.contains("     as comments also are being parsed -->"));
-        
+
         // Verify it can round-trip correctly
         let parsed_resources = AndroidResources::from_xml(&xml).unwrap();
         assert_eq!(parsed_resources.strings.len(), 1);
