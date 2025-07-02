@@ -1,7 +1,6 @@
 use crate::shared::fluent_data::{FluentElement, FluentMessage, FluentPattern, FluentResource};
 use anyhow::Result;
 use fluent_syntax::ast::{Entry, InlineExpression};
-use std::collections::HashMap;
 
 // Constants for better maintainability
 pub const UNSUPPORTED_PLACEHOLDER: &str = "{unsupported}";
@@ -26,15 +25,6 @@ impl FluentResourceParser {
             .into_iter()
             .map(TryFrom::try_from)
             .flat_map(Result::ok)
-            .collect()
-    }
-
-    pub fn convert_attributes(
-        attributes: Vec<fluent_syntax::ast::Attribute<&str>>,
-    ) -> HashMap<String, FluentPattern> {
-        attributes
-            .iter()
-            .map(|attr| (attr.id.name.to_string(), (&attr.value).into()))
             .collect()
     }
 
