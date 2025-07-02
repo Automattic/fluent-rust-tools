@@ -1,0 +1,176 @@
+# frozen_string_literal: true
+
+require 'bundler/gem_tasks'
+require 'rspec/core/rake_task'
+require 'rubocop/rake_task'
+require 'fileutils'
+require 'octokit'
+
+RSpec::Core::RakeTask.new(:spec)
+RuboCop::RakeTask.new
+
+# Tasks
+
+desc 'Build Rust binary and prepare for gem (platform: PLATFORM, defaults to current platform)'
+task :build_rust, [:platform] do |_t, args|
+  platform = args[:platform] || FluentTools::Utils.detect_platform
+
+  # Build the Rust binary
+  build_rust_binary(platform)
+
+  # Get platform-specific paths
+  rust_target = FluentTools::Utils.platform_to_rust_target(platform)
+  paths = get_binary_paths(platform, rust_target)
+  puts "🔍 Target platform: #{paths[:platform]}"
+
+  # Copy binary for gem use
+  copy_binary_for_gem(paths)
+
+  puts '✅ Rust binary built and prepared for gem'
+end
+
+desc 'Build release binary for platform and upload to GitHub releases (platform: PLATFORM, defaults to current platform)'
+task :build_and_create_github_release, [:platform] do |_t, args|
+  platform = args[:platform] || FluentTools::Utils.detect_platform
+
+  build_rust_binary(platform)
+
+  # Get platform-specific paths
+  rust_target = FluentTools::Utils.platform_to_rust_target(platform)
+  paths = get_binary_paths(platform, rust_target)
+  puts "🔍 Target platform: #{paths[:platform]}"
+
+  # Prepare release binary
+  binary_file = prepare_release_binary(paths)
+
+  # Upload to GitHub
+  github_token = ENV['GITHUB_TOKEN'] || raise('GITHUB_TOKEN environment variable is required')
+  client = Octokit::Client.new(access_token: github_token)
+  repo = "#{FluentTools::Utils::REPO_OWNER}/#{FluentTools::Utils::REPO_NAME}"
+
+  release = find_or_create_github_release(client, repo, FluentTools::VERSION)
+  asset = upload_release_asset(client, release, binary_file)
+
+  puts "✅ Successfully uploaded #{binary_file} to GitHub release!"
+  puts "🔗 Download URL: #{asset.browser_download_url}"
+
+  # Clean up local release binary
+  FileUtils.rm(binary_file)
+end
+
+desc 'Clean all build artifacts'
+task :clean do
+  FileUtils.rm_rf(%w[bin pkg])
+  system("cd #{project_root} && make clean")
+  puts '🧹 Cleaned all build artifacts'
+end
+
+# Helper methods
+def project_root
+  @project_root ||= File.expand_path('..', __dir__)
+end
+
+def require_project_deps
+  require_relative 'lib/fluent_tools/version'
+  require_relative 'lib/fluent_tools/utils'
+end
+
+def build_rust_binary(platform)
+  FluentTools::Utils.validate_platform!(platform)
+  puts "🔨 Building Rust binary for platform: #{platform}"
+
+  system("cd #{project_root} && make build_platform PLATFORM=#{platform}") || raise('Failed to build Rust binary')
+end
+
+def get_binary_paths(platform, target_dir)
+  require_project_deps
+
+  raise 'Platform is required' unless platform
+  raise 'Target directory is required' unless target_dir
+
+  binary_extension = FluentTools::Utils.binary_extension(platform)
+  binary_name = FluentTools::Utils::BINARY_NAME
+
+  source_path = File.expand_path("../target/#{target_dir}/release/#{binary_name}#{binary_extension}", __dir__)
+
+  {
+    platform: platform,
+    extension: binary_extension,
+    source_path: source_path,
+    gem_binary_path: "bin/#{binary_name}#{binary_extension}",
+    release_binary_name: FluentTools::Utils.binary_name_for_platform(platform)
+  }
+end
+
+def copy_binary_for_gem(paths)
+  FileUtils.mkdir_p('bin')
+
+  unless File.exist?(paths[:source_path])
+    puts "❌ Source binary not found at #{paths[:source_path]}"
+    exit 1
+  end
+
+  FileUtils.cp(paths[:source_path], paths[:gem_binary_path])
+
+  # Make executable on Unix-like systems
+  File.chmod(0o755, paths[:gem_binary_path]) unless FluentTools::Utils.windows_platform?(paths[:platform])
+
+  puts "✅ Binary copied to #{paths[:gem_binary_path]}"
+  paths[:gem_binary_path]
+end
+
+def prepare_release_binary(paths)
+  unless File.exist?(paths[:source_path])
+    puts "❌ Built binary not found at #{paths[:source_path]}"
+    exit 1
+  end
+
+  FileUtils.cp(paths[:source_path], paths[:release_binary_name])
+  puts "📦 Prepared release binary: #{paths[:release_binary_name]}"
+  paths[:release_binary_name]
+end
+
+def find_or_create_github_release(client, repo, version)
+  tag_name = version
+  puts "🔍 Checking for existing release: #{tag_name}"
+
+  begin
+    release = client.release_for_tag(repo, tag_name)
+    puts "✅ Found existing release: #{release.name}"
+    release
+  rescue Octokit::NotFound
+    puts "📝 Creating new release: #{tag_name}"
+    is_prerelease = %w[alpha beta rc].any? { |pre| version.include?(pre) }
+    client.create_release(repo, tag_name, {
+                            name: version,
+                            body: "Release #{version}",
+                            draft: false,
+                            prerelease: is_prerelease
+                          })
+  end
+end
+
+def upload_release_asset(client, release, binary_name)
+  # Remove existing asset if present
+  existing_asset = release.assets.find { |asset| asset.name == binary_name }
+  if existing_asset
+    puts "⚠️ Asset #{binary_name} already exists, deleting..."
+    client.delete_release_asset(existing_asset.url)
+  end
+
+  # Upload new asset
+  puts "📤 Uploading #{binary_name} to GitHub release..."
+  client.upload_asset(release.url, binary_name, { content_type: 'application/octet-stream' })
+end
+
+desc 'Run all tests'
+task test: %i[build_rust spec]
+
+desc 'Run linting'
+task lint: :rubocop
+
+desc 'Build Rust binary with the detected platform'
+task build: :build_rust
+
+desc 'Test and lint the gem'
+task default: %i[test lint]

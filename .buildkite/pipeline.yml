@@ -1,0 +1,86 @@
+agents:
+  queue: default
+
+env:
+  IMAGE_ID: $IMAGE_ID
+
+common_params:
+  plugins:
+    - &docker_plugin
+      docker#v5.8.0:
+        image: public.ecr.aws/docker/library/ruby:3.2.2
+        propagate-environment: true
+        environment:
+          - RUBYGEMS_API_KEY
+
+steps:
+  #################
+  # Build and Test
+  #################
+  - group: "Tests"
+    key: tests
+    steps:
+      - label: ":rust: Run Tests"
+        command: |
+          make test
+        notify:
+          - github_commit_status:
+              context: "Rust Tests"
+
+  #################
+  # Lint
+  #################
+  - label: ":ruby: Rubocop + RSpec"
+    # for now, running in the default queue to avoid the need of a Gemfile the root directory
+    command: cd ruby && bundle install && bundle exec rubocop && bundle exec rspec
+    key: ruby-lint-and-tests
+    retry:
+      manual:
+        permit_on_passed: true
+    plugins: [*docker_plugin]
+    notify:
+      - github_commit_status:
+          context: "Ruby Lint and Tests"
+
+  #################
+  # Release Binaries
+  #################
+  - group: "📦 Release Binaries"
+    key: release-binaries
+    if: build.tag != null
+    depends_on:
+      - tests
+      - ruby-lint-and-tests
+    steps:
+      - label: ":linux: Linux Binaries (x86_64 + ARM64)"
+        command: |
+          echo "--- :package: Building Linux binaries using Docker cross-compilation"
+          .buildkite/release-binary.sh x86_64-linux
+          .buildkite/release-binary.sh arm64-linux
+        plugins: [$CI_TOOLKIT]
+        agents:
+          queue: android
+
+      - label: ":mac: macOS Binaries (x86_64 + ARM64)"
+        command: |
+          echo "--- :package: Building macOS binaries natively"
+          echo "--- :rust: Installing Rust"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -v -y
+          source "$$HOME/.cargo/env"
+          
+          .buildkite/release-binary.sh x86_64-darwin
+          .buildkite/release-binary.sh arm64-darwin
+        plugins: [$CI_TOOLKIT]
+        agents:
+          queue: mac
+
+  #################
+  # Push to RubyGems
+  #################
+  - label: ":rubygems: Publish to RubyGems"
+    key: gem-push
+    if: build.tag != null
+    depends_on:
+     - release-binaries
+    command: .buildkite/gem-push.sh
+    plugins: [*docker_plugin]

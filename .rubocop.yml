@@ -1,0 +1,7 @@
+inherit_from: ruby/.rubocop.yml
+
+AllCops:
+  Exclude:
+    - 'ruby/vendor/**/*'
+    - 'src/**/*'
+    - 'tests/**/*'

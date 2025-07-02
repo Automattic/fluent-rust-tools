@@ -63,9 +63,16 @@ enum FormatCommands {
     },
 }
 
-fn main() -> Result<()> {
+fn main() {
     let cli = Cli::parse();
 
+    if let Err(e) = run(cli) {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+}
+
+fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Android { android_command } => {
             match android_command {

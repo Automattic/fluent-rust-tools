@@ -1,0 +1,19 @@
+*.gem
+
+# Used by dotenv library to load environment variables.
+.env
+
+# Bundler
+vendor/bundle/
+
+# Local binary built by extconf.rb
+bin/
+
+.rspec_status
+
+# IDE files
+.vscode/
+.idea/
+
+# MacOS
+.DS_Store
