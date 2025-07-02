@@ -1,21 +1,25 @@
-use polib::catalog::Catalog;
-use polib::message::{Message as PoMessage, MessageView};
-use polib::metadata::CatalogMetadata;
-use polib::po_file;
-
-use crate::po::cldr_plural_rules::{
-    get_plural_forms_for_locale, is_other_category, is_singular_category,
-    map_cldr_categories_to_po_indices_for_locale, map_po_indices_to_cldr_categories_for_locale,
-    CLDR_OTHER_CATEGORY, DEFAULT_PLURAL_FORMS,
-};
-use crate::shared::error::ConversionError;
-use crate::shared::fluent_data::{
-    extract_pattern_text, parse_string_value_as_fluent_pattern, FluentElement, FluentMessage,
-    FluentPattern, FluentResource,
+use crate::{
+    po::cldr_plural_rules::{
+        CLDR_OTHER_CATEGORY, DEFAULT_PLURAL_FORMS, get_plural_forms_for_locale, is_other_category,
+        is_singular_category, map_cldr_categories_to_po_indices_for_locale,
+        map_po_indices_to_cldr_categories_for_locale,
+    },
+    shared::{
+        error::ConversionError,
+        fluent_data::{
+            FluentElement, FluentMessage, FluentPattern, FluentResource, extract_pattern_text,
+            parse_string_value_as_fluent_pattern,
+        },
+    },
 };
 use anyhow::Result;
-use std::collections::HashMap;
-use std::path::Path;
+use polib::{
+    catalog::Catalog,
+    message::{Message as PoMessage, MessageView},
+    metadata::CatalogMetadata,
+    po_file,
+};
+use std::{collections::HashMap, path::Path};
 
 // =============================================================================
 // Constants
