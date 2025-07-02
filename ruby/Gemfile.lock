@@ -89,8 +89,8 @@ DEPENDENCIES
   rake (~> 13.1)
   rspec (~> 3.4)
   rubocop (~> 1.76)
-  rubocop-rake
-  rubocop-rspec
+  rubocop-rake (~> 0.7)
+  rubocop-rspec (~> 3.6)
 
 BUNDLED WITH
    2.6.3

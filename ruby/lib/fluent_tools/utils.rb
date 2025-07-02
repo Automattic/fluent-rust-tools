@@ -81,6 +81,13 @@ module FluentTools
       PLATFORM_RUST_TARGETS[platform]
     end
 
+    def self.determine_install_dir
+      root_gem_dir = File.join(__dir__, '..', '..')
+      bin_dir = File.join(root_gem_dir, 'bin')
+      FileUtils.mkdir_p(bin_dir)
+      bin_dir
+    end
+
     # Logger mixin to provide consistent logging across tools
     module Logger
       def log_info(message, verbose: true)

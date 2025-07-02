@@ -59,36 +59,12 @@ module FluentTools
       gem_binary = File.join(__dir__, '..', '..', 'bin', binary_name)
       return gem_binary if File.executable?(gem_binary)
 
-      # 2. Development context
-      if development_context?
-        dev_binary = File.join(project_root, 'target', 'release', binary_name)
-        return dev_binary if File.executable?(dev_binary)
-
-        ruby_binary = File.join(project_root, 'ruby', 'bin', binary_name)
-        return ruby_binary if File.executable?(ruby_binary)
-      end
-
-      # 3. System PATH
+      # 2. System PATH
       system_binary = `which #{binary_name} 2>/dev/null`.strip
       return system_binary unless system_binary.empty?
 
       # If nothing found, return the expected gem path for better error messages
       gem_binary
-    end
-
-    def development_context?
-      !project_root.nil?
-    end
-
-    def project_root
-      @project_root ||= find_project_root
-    end
-
-    def find_project_root
-      Pathname.new(__dir__).ascend do |dir|
-        return dir.to_s if File.exist?(File.join(dir, 'Cargo.toml'))
-      end
-      nil
     end
 
     def validate_input_file!(path)

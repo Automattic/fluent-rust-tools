@@ -13,7 +13,7 @@ require 'pathname'
 require_relative 'lib/fluent_tools/utils'
 
 # Installer for fluent-rust-tools gem
-# Downloads pre-built binaries or builds from source
+# Downloads pre-built binaries
 class FluentToolsInstaller
   include FluentTools::Utils::Logger
 
@@ -33,12 +33,14 @@ class FluentToolsInstaller
         log_success 'Installation complete using pre-built binary!'
         true
       else
-        log_warning 'Pre-built binary not available, falling back to compilation...'
-        build_binary_from_source
+        log_error 'Pre-built binary not available for this platform/version'
+        log_error "Please check available releases at: https://github.com/#{FluentTools::Utils::REPO_OWNER}/#{FluentTools::Utils::REPO_NAME}/releases"
+        false
       end
     else
-      log_warning "Platform #{RUBY_PLATFORM} not supported for pre-built binaries"
-      build_binary_from_source
+      log_error "Platform #{RUBY_PLATFORM} not supported"
+      log_error "Please check available releases at: https://github.com/#{FluentTools::Utils::REPO_OWNER}/#{FluentTools::Utils::REPO_NAME}/releases"
+      false
     end
   end
 
@@ -127,7 +129,7 @@ class FluentToolsInstaller
   end
 
   def install_binary(binary_data, platform)
-    install_dir = determine_install_dir
+    install_dir = FluentTools::Utils.determine_install_dir
     FileUtils.mkdir_p(install_dir)
 
     binary_extension = FluentTools::Utils.binary_extension(platform)
@@ -145,68 +147,5 @@ class FluentToolsInstaller
 
     log_info "✅ Binary installed successfully (#{File.size(binary_path)} bytes)"
     @binary_path = binary_path
-  end
-
-  # rubocop:disable Naming/PredicateMethod
-  def build_binary_from_source
-    log_info '🔨 Building from source...'
-
-    # Find project root (where Cargo.toml and Makefile are)
-    project_root = find_project_root
-    unless project_root
-      log_error 'Could not find project root (Cargo.toml)'
-      return false
-    end
-
-    # Use Makefile to build the binary
-    Dir.chdir(project_root) do
-      unless system('make build_native')
-        log_error 'Failed to build Rust binary using Makefile'
-        return false
-      end
-    end
-
-    # Copy binary to install location
-    copy_built_binary(project_root)
-    log_success 'Binary built and installed successfully!'
-
-    true
-  end
-  # rubocop:enable Naming/PredicateMethod
-
-  def find_project_root
-    Pathname.pwd.ascend do |dir|
-      return dir.to_s if File.exist?(File.join(dir, 'Cargo.toml'))
-    end
-    nil
-  end
-
-  def copy_built_binary(project_root)
-    install_dir = determine_install_dir
-    FileUtils.mkdir_p(install_dir)
-
-    binary_extension = FluentTools::Utils.binary_extension
-    source_binary = File.join(project_root, 'target', 'release', "#{FluentTools::Utils::BINARY_NAME}#{binary_extension}")
-    dest_binary = File.join(install_dir, "#{FluentTools::Utils::BINARY_NAME}#{binary_extension}")
-
-    raise "Built binary not found at #{source_binary}" unless File.exist?(source_binary)
-
-    FileUtils.cp(source_binary, dest_binary)
-    @binary_path = dest_binary
-  end
-
-  def determine_install_dir
-    # First check if we're in the development context (has Cargo.toml in parent dirs)
-    project_root = find_project_root
-    if project_root
-      # Development context - put in ruby/bin relative to project root
-      File.join(project_root, 'ruby', 'bin')
-    else
-      # We're in a gem installation context - create bin directory in current gem location
-      current_dir = File.expand_path('..', __dir__)
-      bin_dir = File.join(current_dir, 'bin')
-      FileUtils.mkdir_p(bin_dir)
-      bin_dir
-    end
   end
 end

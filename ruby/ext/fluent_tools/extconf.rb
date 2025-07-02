@@ -30,11 +30,8 @@ MAKEFILE
 
 File.write('Makefile', makefile_content)
 
-unless success
-  puts '❌ Installation failed - binary could not be installed'
-  puts 'This may still work if the binary becomes available at runtime'
-  puts 'or if you build it manually using: rake build_rust'
-  exit 1
+if success
+  puts '✅ Installation complete'
+else
+  puts 'ℹ️ Installation complete - binary couldn\'t be downloaded but will be resolved at runtime'
 end
-
-puts '✅ Extension configuration complete'

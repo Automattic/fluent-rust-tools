@@ -44,10 +44,13 @@ Gem::Specification.new do |spec|
 
   # Post-install message
   spec.post_install_message = <<~MESSAGE
-    This fluent-tools gem will try to use a pre-built binary for your platform.
-    If unavailable, it will compile the Rust binary during installation.
+    ✅ fluent-tools installed successfully!
 
-    If compilation is needed, make sure you have Rust installed: https://rustup.rs/
+    This gem will automatically try to download pre-built binaries for your platform.
+    If a pre-built binary is not available, you can checkout the project and build one manually using:
+      cd ruby && bundle exec rake build_rust
+
+    For more information: https://github.com/Automattic/fluent-rust-tools
   MESSAGE
 
   # Extensions for building the Rust binary
