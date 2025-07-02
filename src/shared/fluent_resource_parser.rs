@@ -1,7 +1,6 @@
 use crate::shared::fluent_data::{FluentElement, FluentMessage, FluentPattern, FluentResource};
 use anyhow::Result;
 use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
-use fluent_syntax::parser::parse;
 use std::collections::HashMap;
 
 // Constants for better maintainability
@@ -79,7 +78,7 @@ impl FluentResourceParser {
 }
 
 fn parse_with_error_handling(source: &str) -> Result<fluent_syntax::ast::Resource<&str>> {
-    match parse(source) {
+    match fluent_syntax::parser::parse(source) {
         Ok(resource) => Ok(resource),
         Err((_resource, errors)) => Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors)),
     }
