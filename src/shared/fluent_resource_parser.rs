@@ -81,13 +81,7 @@ impl FluentResourceParser {
 fn parse_with_error_handling(source: &str) -> Result<fluent_syntax::ast::Resource<&str>> {
     match parse(source) {
         Ok(resource) => Ok(resource),
-        Err((resource, errors)) => {
-            if errors.is_empty() {
-                Ok(resource)
-            } else {
-                Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors))
-            }
-        }
+        Err((_resource, errors)) => Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors)),
     }
 }
 
