@@ -4,14 +4,14 @@ use polib::metadata::CatalogMetadata;
 use polib::po_file;
 
 use crate::po::cldr_plural_rules::{
-    CLDR_OTHER_CATEGORY, DEFAULT_PLURAL_FORMS, get_plural_forms_for_locale, is_other_category,
-    is_singular_category, map_cldr_categories_to_po_indices_for_locale,
-    map_po_indices_to_cldr_categories_for_locale,
+    get_plural_forms_for_locale, is_other_category, is_singular_category,
+    map_cldr_categories_to_po_indices_for_locale, map_po_indices_to_cldr_categories_for_locale,
+    CLDR_OTHER_CATEGORY, DEFAULT_PLURAL_FORMS,
 };
 use crate::shared::error::ConversionError;
 use crate::shared::fluent_data::{
-    FluentElement, FluentMessage, FluentPattern, FluentResource, extract_pattern_text,
-    parse_string_value_as_fluent_pattern,
+    extract_pattern_text, parse_string_value_as_fluent_pattern, FluentElement, FluentMessage,
+    FluentPattern, FluentResource,
 };
 use anyhow::Result;
 use std::collections::HashMap;
@@ -758,8 +758,10 @@ mod tests {
     #[test]
     fn test_po_catalog_to_fluent() {
         // Test both simple and plural messages
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            ..Default::default()
+        };
         let mut catalog = Catalog::new(metadata);
 
         // Simple message
@@ -916,9 +918,11 @@ mod tests {
         let po_path = temp_dir.path().join("test.po");
 
         // Create a catalog
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = DEFAULT_CHARSET.to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            content_type: DEFAULT_CHARSET.to_string(),
+            ..Default::default()
+        };
 
         let mut catalog = Catalog::new(metadata);
 
@@ -953,9 +957,11 @@ mod tests {
     #[test]
     fn test_po_to_fluent_empty_msgstr_edge_cases() {
         // Test that empty msgstr values are omitted and don't create extra empty lines
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = "text/plain; charset=UTF-8".to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            content_type: "text/plain; charset=UTF-8".to_string(),
+            ..Default::default()
+        };
 
         let mut catalog = Catalog::new(metadata);
 
@@ -1018,9 +1024,11 @@ mod tests {
     #[test]
     fn test_multiline_po_to_fluent_formatting() {
         // Test that multiline PO messages are correctly formatted with proper indentation
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = "text/plain; charset=UTF-8".to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            content_type: "text/plain".to_string(),
+            ..Default::default()
+        };
 
         let mut catalog = Catalog::new(metadata);
 
