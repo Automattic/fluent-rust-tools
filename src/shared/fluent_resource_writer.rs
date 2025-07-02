@@ -235,7 +235,7 @@ multiline = This is line one
         ];
 
         for content in &expected_content {
-            assert!(generated_ftl.contains(content), "Missing: {}", content);
+            assert!(generated_ftl.contains(content), "Missing: {content}");
         }
 
         // Verify comment preservation
@@ -249,8 +249,7 @@ multiline = This is line one
         for comment in &expected_comments {
             assert!(
                 generated_ftl.contains(comment),
-                "Missing comment: {}",
-                comment
+                "Missing comment: {comment}"
             );
         }
     }

@@ -133,8 +133,8 @@ pub fn extract_pattern_text(pattern: &FluentPattern) -> String {
 fn extract_element_text(element: &FluentElement) -> String {
     match element {
         FluentElement::Text(text) => text.clone(),
-        FluentElement::Variable(var) => format!("{{${}}}", var),
-        FluentElement::Plural { selector, .. } => format!("{{ ${} }}", selector),
+        FluentElement::Variable(var) => format!("{{${var}}}"),
+        FluentElement::Plural { selector, .. } => format!("{{ ${selector} }}"),
     }
 }
 
@@ -146,7 +146,7 @@ fn extract_element_text(element: &FluentElement) -> String {
 /// - Returning a FluentPattern that can be used in message values
 pub fn parse_string_value_as_fluent_pattern(key: &str, text: &str) -> FluentPattern {
     let formatted_text = format_string_value_as_multiline_fluent_text(text);
-    let fluent_content = format!("{} = {}", key, formatted_text);
+    let fluent_content = format!("{key} = {formatted_text}");
     match FluentResource::from_source(&fluent_content) {
         Ok(resource) => resource
             .messages
@@ -169,7 +169,7 @@ pub fn format_string_value_as_multiline_fluent_text(text: &str) -> String {
                 if i == 0 {
                     line.to_string()
                 } else {
-                    format!("    {}", line) // Indent continuation lines with 4 spaces
+                    format!("    {line}") // Indent continuation lines with 4 spaces
                 }
             })
             .collect::<Vec<_>>()

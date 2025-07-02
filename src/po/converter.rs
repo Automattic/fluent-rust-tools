@@ -487,8 +487,7 @@ msgstr "O site não suporta Senhas de Aplicativo."
             }
             Err(e) => {
                 panic!(
-                    "Expected successful conversion with preprocessing fallback, but got error: {}",
-                    e
+                    "Expected successful conversion with preprocessing fallback, but got error: {e}"
                 );
             }
         }
@@ -567,7 +566,7 @@ greeting = Hello, {$name}!
                 assert!(catalog.messages().count() > 0);
             }
             Ok(Err(e)) => {
-                panic!("Generated PO file failed to parse: {}", e);
+                panic!("Generated PO file failed to parse: {e}");
             }
             Err(_) => {
                 panic!("Generated PO file caused a panic - missing required metadata fields");

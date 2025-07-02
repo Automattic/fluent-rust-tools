@@ -62,7 +62,7 @@ pub fn parse_po_file(input_path: &Path) -> Result<Catalog> {
 
     match parse_result {
         Ok(result) => result.map_err(|e| {
-            ConversionError::InputFileParseError(format!("Failed to parse PO file: {}", e)).into()
+            ConversionError::InputFileParseError(format!("Failed to parse PO file: {e}")).into()
         }),
         Err(_) => Err(ConversionError::InputFileParseError(
             "Failed to parse PO file: malformed content caused parser panic".to_string(),
@@ -206,7 +206,7 @@ impl<'a> PoContentProcessor<'a> {
             if !self.found_metadata.contains_key(field) {
                 let default_value = get_default_metadata_value(field);
                 self.header_lines
-                    .push(format!("\"{}: {}\\n\"", field, default_value));
+                    .push(format!("\"{field}: {default_value}\\n\""));
             }
         }
     }
@@ -429,7 +429,7 @@ fn convert_plural_po_message_to_fluent_message(
                 cldr_key.to_string()
             } else {
                 // Additional forms for complex languages - use numeric fallback
-                format!("{}", index)
+                format!("{index}")
             };
 
             variants.insert(variant_key, variant_pattern);
@@ -500,7 +500,7 @@ fn extract_filtered_comments(comments: &str) -> Option<String> {
 
 fn create_po_metadata(locale: &str) -> CatalogMetadata {
     let project_id_version = option_env!("CARGO_PKG_VERSION")
-        .map(|v| format!("wordpress-rs {}", v))
+        .map(|v| format!("wordpress-rs {v}"))
         .unwrap_or_else(|| "wordpress-rs".to_string());
 
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M%z").to_string();
@@ -510,24 +510,16 @@ fn create_po_metadata(locale: &str) -> CatalogMetadata {
 
     // Construct the metadata string with proper plural forms
     let metadata_str = format!(
-        "Project-Id-Version: {}\n\
-         POT-Creation-Date: {}\n\
-         PO-Revision-Date: {}\n\
+        "Project-Id-Version: {project_id_version}\n\
+         POT-Creation-Date: {now}\n\
+         PO-Revision-Date: {now}\n\
          Last-Translator: \n\
          Language-Team: \n\
-         MIME-Version: {}\n\
-         Content-Type: {}\n\
-         Content-Transfer-Encoding: {}\n\
-         Language: {}\n\
-         Plural-Forms: {}\n",
-        project_id_version,
-        now,
-        now,
-        DEFAULT_MIME_VERSION,
-        DEFAULT_CHARSET,
-        DEFAULT_ENCODING,
-        locale,
-        plural_forms
+         MIME-Version: {DEFAULT_MIME_VERSION}\n\
+         Content-Type: {DEFAULT_CHARSET}\n\
+         Content-Transfer-Encoding: {DEFAULT_ENCODING}\n\
+         Language: {locale}\n\
+         Plural-Forms: {plural_forms}\n"
     );
 
     // Parse the metadata string to create CatalogMetadata with proper plural rules
@@ -578,12 +570,12 @@ fn get_source_text_or_target(source_message: Option<&FluentMessage>, target_text
 }
 
 fn create_combined_comments(existing_comments: &str, selector: &str) -> String {
-    let selector_comment = format!("{}{}", FLUENT_SELECTOR_PREFIX, selector);
+    let selector_comment = format!("{FLUENT_SELECTOR_PREFIX}{selector}");
 
     if existing_comments.is_empty() {
         selector_comment
     } else {
-        format!("{}\n{}", existing_comments, selector_comment)
+        format!("{existing_comments}\n{selector_comment}")
     }
 }
 
