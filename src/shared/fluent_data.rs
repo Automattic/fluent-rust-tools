@@ -36,8 +36,7 @@ impl FluentResource {
     ///
     /// Uses the fluent-syntax parser's built-in comment handling
     pub fn from_source(source: &str) -> Result<Self> {
-        let mut parser = FluentResourceParser::new();
-        parser.parse_source(source)
+        FluentResourceParser::parse_source(source)
     }
 
     pub fn to_source(&self) -> String {

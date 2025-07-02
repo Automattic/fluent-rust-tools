@@ -7,48 +7,45 @@ use std::collections::HashMap;
 const UNSUPPORTED_PLACEHOLDER: &str = "{unsupported}";
 
 /// Internal parser state for processing Fluent AST entries
-pub struct FluentResourceParser {
-    messages: Vec<FluentMessage>,
-}
+pub struct FluentResourceParser;
 
 impl FluentResourceParser {
-    pub fn new() -> Self {
-        Self {
-            messages: Vec::new(),
-        }
-    }
-
-    pub fn parse_source(&mut self, source: &str) -> Result<FluentResource> {
+    pub fn parse_source(source: &str) -> Result<FluentResource> {
         let resource = parse_with_error_handling(source)?;
-        self.process_entries(resource.body)?;
 
         Ok(FluentResource {
-            messages: std::mem::take(&mut self.messages),
+            messages: Self::process_entries(resource.body),
         })
     }
 
-    fn process_entries(&mut self, entries: Vec<Entry<&str>>) -> Result<()> {
-        for entry in entries {
-            match entry {
-                Entry::Message(message) => self.process_message(message),
-                Entry::Comment(_) => {
-                    // Standalone comments are ignored - only use parser's built-in comment association
+    fn process_entries(entries: Vec<Entry<&str>>) -> Vec<FluentMessage> {
+        entries
+            .into_iter()
+            .flat_map(|entry| {
+                match entry {
+                    Entry::Message(message) => Some(Self::process_message(message)),
+                    Entry::Comment(_) => {
+                        // Standalone comments are ignored - only use parser's built-in comment association
+                        None
+                    }
+                    Entry::GroupComment(_) | Entry::ResourceComment(_) => {
+                        // Ignore group and resource comments for now
+                        None
+                    }
+                    Entry::Term(_) => {
+                        // Handle terms if needed in the future
+                        None
+                    }
+                    Entry::Junk { .. } => {
+                        // Ignore junk entries
+                        None
+                    }
                 }
-                Entry::GroupComment(_) | Entry::ResourceComment(_) => {
-                    // Ignore group and resource comments for now
-                }
-                Entry::Term(_) => {
-                    // Handle terms if needed in the future
-                }
-                Entry::Junk { .. } => {
-                    // Ignore junk entries
-                }
-            }
-        }
-        Ok(())
+            })
+            .collect()
     }
 
-    fn process_message(&mut self, message: fluent_syntax::ast::Message<&str>) {
+    fn process_message(message: fluent_syntax::ast::Message<&str>) -> FluentMessage {
         let message_id = message.id.name.to_string();
 
         // Only use comments directly associated with the message by the fluent-syntax parser
@@ -56,18 +53,15 @@ impl FluentResourceParser {
             .comment
             .map(|msg_comment| msg_comment.content.join("\n"));
 
-        let fluent_message = FluentMessage {
+        FluentMessage {
             id: message_id,
             value: message.value.map(|pattern| convert_pattern(&pattern)),
-            attributes: self.convert_attributes(message.attributes),
+            attributes: Self::convert_attributes(message.attributes),
             comment,
-        };
-
-        self.messages.push(fluent_message);
+        }
     }
 
     fn convert_attributes(
-        &self,
         attributes: Vec<fluent_syntax::ast::Attribute<&str>>,
     ) -> HashMap<String, FluentPattern> {
         attributes
