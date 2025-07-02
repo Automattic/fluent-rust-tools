@@ -1,21 +1,25 @@
-use polib::catalog::Catalog;
-use polib::message::{Message as PoMessage, MessageView};
-use polib::metadata::CatalogMetadata;
-use polib::po_file;
-
-use crate::po::cldr_plural_rules::{
-    CLDR_OTHER_CATEGORY, DEFAULT_PLURAL_FORMS, get_plural_forms_for_locale, is_other_category,
-    is_singular_category, map_cldr_categories_to_po_indices_for_locale,
-    map_po_indices_to_cldr_categories_for_locale,
-};
-use crate::shared::error::ConversionError;
-use crate::shared::fluent_data::{
-    FluentElement, FluentMessage, FluentPattern, FluentResource, extract_pattern_text,
-    parse_string_value_as_fluent_pattern,
+use crate::{
+    po::cldr_plural_rules::{
+        CLDR_OTHER_CATEGORY, DEFAULT_PLURAL_FORMS, get_plural_forms_for_locale, is_other_category,
+        is_singular_category, map_cldr_categories_to_po_indices_for_locale,
+        map_po_indices_to_cldr_categories_for_locale,
+    },
+    shared::{
+        error::ConversionError,
+        fluent_data::{
+            FluentElement, FluentMessage, FluentPattern, FluentResource, extract_pattern_text,
+            parse_string_value_as_fluent_pattern,
+        },
+    },
 };
 use anyhow::Result;
-use std::collections::HashMap;
-use std::path::Path;
+use polib::{
+    catalog::Catalog,
+    message::{Message as PoMessage, MessageView},
+    metadata::CatalogMetadata,
+    po_file,
+};
+use std::{collections::HashMap, path::Path};
 
 // =============================================================================
 // Constants
@@ -194,7 +198,7 @@ impl<'a> PoContentProcessor<'a> {
     fn finalize_header(&mut self) {
         self.header_section = false;
         self.add_missing_metadata_fields();
-        self.result.extend(self.header_lines.drain(..));
+        self.result.append(&mut self.header_lines);
     }
 
     fn add_missing_metadata_fields(&mut self) {
@@ -351,7 +355,7 @@ fn convert_message_attributes(
 
         let source_attr_text = source_message
             .and_then(|sm| sm.attributes.get(attr_name))
-            .map(|sp| extract_pattern_text(sp));
+            .map(extract_pattern_text);
 
         let msgid = source_attr_text.unwrap_or_else(|| target_attr_text.clone());
 
@@ -379,7 +383,7 @@ fn convert_singular_po_message_to_fluent_message(
     }
 
     // Simply try to parse the unescaped content as a Fluent message value
-    let unescaped_msgstr = unescape_fluent_value(&msgstr);
+    let unescaped_msgstr = unescape_fluent_value(msgstr);
     let pattern = parse_string_value_as_fluent_pattern(key, &unescaped_msgstr);
 
     // Extract comments (excluding FLUENT_SELECTOR comments which are handled separately)
@@ -569,7 +573,7 @@ fn generate_fluent_key_from_message(message: &dyn MessageView) -> String {
 fn get_source_text_or_target(source_message: Option<&FluentMessage>, target_text: &str) -> String {
     source_message
         .and_then(|sm| sm.value.as_ref())
-        .map(|sp| extract_pattern_text(sp))
+        .map(extract_pattern_text)
         .unwrap_or_else(|| target_text.to_string())
 }
 
@@ -758,8 +762,10 @@ mod tests {
     #[test]
     fn test_po_catalog_to_fluent() {
         // Test both simple and plural messages
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            ..Default::default()
+        };
         let mut catalog = Catalog::new(metadata);
 
         // Simple message
@@ -916,9 +922,11 @@ mod tests {
         let po_path = temp_dir.path().join("test.po");
 
         // Create a catalog
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = DEFAULT_CHARSET.to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            content_type: DEFAULT_CHARSET.to_string(),
+            ..Default::default()
+        };
 
         let mut catalog = Catalog::new(metadata);
 
@@ -953,9 +961,11 @@ mod tests {
     #[test]
     fn test_po_to_fluent_empty_msgstr_edge_cases() {
         // Test that empty msgstr values are omitted and don't create extra empty lines
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = "text/plain; charset=UTF-8".to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            content_type: "text/plain; charset=UTF-8".to_string(),
+            ..Default::default()
+        };
 
         let mut catalog = Catalog::new(metadata);
 
@@ -1018,9 +1028,11 @@ mod tests {
     #[test]
     fn test_multiline_po_to_fluent_formatting() {
         // Test that multiline PO messages are correctly formatted with proper indentation
-        let mut metadata = CatalogMetadata::default();
-        metadata.language = "en".to_string();
-        metadata.content_type = "text/plain; charset=UTF-8".to_string();
+        let metadata = CatalogMetadata {
+            language: "en".to_string(),
+            content_type: "text/plain".to_string(),
+            ..Default::default()
+        };
 
         let mut catalog = Catalog::new(metadata);
 

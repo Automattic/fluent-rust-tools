@@ -30,8 +30,8 @@ pub enum ConversionError {
 
     // General errors
     #[allow(dead_code)]
-    #[error("Conversion error: {0}")]
-    ConversionError(String),
+    #[error("Other conversion error: {0}")]
+    Other(String),
 
     #[allow(dead_code)]
     #[error("IO error: {0}")]
