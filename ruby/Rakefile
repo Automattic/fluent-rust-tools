@@ -169,5 +169,8 @@ task test: %i[build_rust spec]
 desc 'Run linting'
 task lint: :rubocop
 
+desc 'Build Rust binary with the detected platform'
 task build: :build_rust
+
+desc 'Test and lint the gem'
 task default: %i[test lint]

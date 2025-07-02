@@ -39,6 +39,8 @@ Gem::Specification.new do |spec|
 
   # Runtime dependencies
   spec.add_dependency 'thor', '~> 1.0'
+  spec.add_development_dependency 'rubocop-rake', '~> 0.7'
+  spec.add_development_dependency 'rubocop-rspec', '~> 3.6'
 
   # Post-install message
   spec.post_install_message = <<~MESSAGE
