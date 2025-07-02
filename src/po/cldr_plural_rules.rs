@@ -182,6 +182,7 @@ pub fn is_other_category(key: &str) -> bool {
 /// - Russian: ["one", "few", "other"]
 /// - Arabic: ["zero", "one", "two", "few", "many", "other"]
 /// - Chinese: ["other"]
+///
 /// Get the plural forms string for a locale (for PO metadata)
 pub fn get_plural_forms_for_locale(locale: &str) -> &'static str {
     // Try exact match first

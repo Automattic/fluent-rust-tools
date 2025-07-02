@@ -194,7 +194,7 @@ impl<'a> PoContentProcessor<'a> {
     fn finalize_header(&mut self) {
         self.header_section = false;
         self.add_missing_metadata_fields();
-        self.result.extend(self.header_lines.drain(..));
+        self.result.append(&mut self.header_lines);
     }
 
     fn add_missing_metadata_fields(&mut self) {
@@ -351,7 +351,7 @@ fn convert_message_attributes(
 
         let source_attr_text = source_message
             .and_then(|sm| sm.attributes.get(attr_name))
-            .map(|sp| extract_pattern_text(sp));
+            .map(extract_pattern_text);
 
         let msgid = source_attr_text.unwrap_or_else(|| target_attr_text.clone());
 
@@ -379,7 +379,7 @@ fn convert_singular_po_message_to_fluent_message(
     }
 
     // Simply try to parse the unescaped content as a Fluent message value
-    let unescaped_msgstr = unescape_fluent_value(&msgstr);
+    let unescaped_msgstr = unescape_fluent_value(msgstr);
     let pattern = parse_string_value_as_fluent_pattern(key, &unescaped_msgstr);
 
     // Extract comments (excluding FLUENT_SELECTOR comments which are handled separately)
@@ -569,7 +569,7 @@ fn generate_fluent_key_from_message(message: &dyn MessageView) -> String {
 fn get_source_text_or_target(source_message: Option<&FluentMessage>, target_text: &str) -> String {
     source_message
         .and_then(|sm| sm.value.as_ref())
-        .map(|sp| extract_pattern_text(sp))
+        .map(extract_pattern_text)
         .unwrap_or_else(|| target_text.to_string())
 }
 
