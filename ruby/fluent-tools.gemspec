@@ -50,5 +50,4 @@ Gem::Specification.new do |spec|
 
   # Extensions for building the Rust binary
   spec.extensions = ['ext/fluent_tools/extconf.rb']
-  spec.metadata['rubygems_mfa_required'] = 'true'
 end

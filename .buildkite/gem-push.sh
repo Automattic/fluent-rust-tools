@@ -3,6 +3,7 @@
 GEM_NAME="fluent-tools"
 
 echo "--- :hammer: Build Gemspec"
+cd ruby
 gem build "$GEM_NAME.gemspec" -o "$GEM_NAME.gem"
 
 echo "--- :sleuth_or_spy: Validate Gem Install"
