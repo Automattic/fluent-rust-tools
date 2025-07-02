@@ -569,7 +569,7 @@ fn create_combined_comments(existing_comments: &str, selector: &str) -> String {
 }
 
 fn extract_plural_info(pattern: &FluentPattern) -> Option<PluralInfo> {
-    for element in &pattern.elements {
+    pattern.elements.iter().find_map(|element| {
         if let FluentElement::Plural { selector, variants } = element {
             let forms: Vec<(String, String)> = variants
                 .iter()
@@ -579,15 +579,18 @@ fn extract_plural_info(pattern: &FluentPattern) -> Option<PluralInfo> {
                 })
                 .collect();
 
-            if !forms.is_empty() {
-                return Some(PluralInfo {
+            if forms.is_empty() {
+                None
+            } else {
+                Some(PluralInfo {
                     selector: selector.clone(),
                     forms,
-                });
+                })
             }
+        } else {
+            None
         }
-    }
-    None
+    })
 }
 
 fn create_po_plural_forms(plural_info: &PluralInfo, locale: &str) -> (String, String, Vec<String>) {
