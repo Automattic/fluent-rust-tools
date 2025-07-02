@@ -1,7 +1,11 @@
-use crate::shared::fluent_resource_parser::FluentResourceParser;
-use crate::shared::fluent_resource_writer::FluentResourceWriter;
-use anyhow::Result;
+use crate::shared::{
+    fluent_resource_parser::FluentResourceParser, fluent_resource_writer::FluentResourceWriter,
+};
+use anyhow::{Result, anyhow};
+use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
 use std::collections::HashMap;
+
+use super::fluent_resource_parser::UNSUPPORTED_PLACEHOLDER;
 
 #[derive(Debug, Clone)]
 pub struct FluentMessage {
@@ -11,9 +15,57 @@ pub struct FluentMessage {
     pub comment: Option<String>,
 }
 
+impl TryFrom<Entry<&str>> for FluentMessage {
+    type Error = anyhow::Error;
+
+    fn try_from(entry: Entry<&str>) -> Result<Self> {
+        match entry {
+            Entry::Message(message) => Ok(message.into()),
+            Entry::Comment(_) => Err(anyhow!(
+                "Standalone comments are ignored - only use parser's built-in comment association"
+            )),
+            Entry::GroupComment(_) | Entry::ResourceComment(_) => {
+                Err(anyhow!("Ignore group and resource comments for now"))
+            }
+            Entry::Term(_) => Err(anyhow!("Handle terms if needed in the future")),
+            Entry::Junk { .. } => Err(anyhow!("Ignore junk entries")),
+        }
+    }
+}
+
+impl From<fluent_syntax::ast::Message<&str>> for FluentMessage {
+    fn from(message: fluent_syntax::ast::Message<&str>) -> Self {
+        let message_id = message.id.name.to_string();
+
+        // Only use comments directly associated with the message by the fluent-syntax parser
+        let comment = message
+            .comment
+            .map(|msg_comment| msg_comment.content.join("\n"));
+
+        Self {
+            id: message_id,
+            value: message.value.as_ref().map(Into::into),
+            attributes: message
+                .attributes
+                .iter()
+                .map(|attr| (attr.id.name.to_string(), (&attr.value).into()))
+                .collect(),
+            comment,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FluentPattern {
     pub elements: Vec<FluentElement>,
+}
+
+impl From<&Pattern<&str>> for FluentPattern {
+    fn from(pattern: &Pattern<&str>) -> Self {
+        Self {
+            elements: pattern.elements.iter().map(Into::into).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +78,29 @@ pub enum FluentElement {
     },
 }
 
+impl From<&Expression<&str>> for FluentElement {
+    fn from(expression: &Expression<&str>) -> Self {
+        match expression {
+            Expression::Inline(InlineExpression::VariableReference { id }) => {
+                FluentElement::Variable(id.name.to_string())
+            }
+            Expression::Select { selector, variants } => {
+                FluentResourceParser::convert_select_expression(selector, variants)
+            }
+            _ => FluentElement::Text(UNSUPPORTED_PLACEHOLDER.to_string()),
+        }
+    }
+}
+
+impl From<&PatternElement<&str>> for FluentElement {
+    fn from(element: &PatternElement<&str>) -> Self {
+        match element {
+            PatternElement::TextElement { value } => FluentElement::Text(value.to_string()),
+            PatternElement::Placeable { expression } => expression.into(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FluentResource {
     pub messages: Vec<FluentMessage>,
@@ -36,8 +111,7 @@ impl FluentResource {
     ///
     /// Uses the fluent-syntax parser's built-in comment handling
     pub fn from_source(source: &str) -> Result<Self> {
-        let mut parser = FluentResourceParser::new();
-        parser.parse_source(source)
+        FluentResourceParser::parse_source(source)
     }
 
     pub fn to_source(&self) -> String {

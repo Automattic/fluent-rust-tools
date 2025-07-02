@@ -65,17 +65,8 @@ enum FormatCommands {
     },
 }
 
-fn main() {
-    let cli = Cli::parse();
-
-    if let Err(e) = run(cli) {
-        eprintln!("Error: {}", e);
-        std::process::exit(1);
-    }
-}
-
-fn run(cli: Cli) -> Result<()> {
-    match cli.command {
+fn main() -> Result<()> {
+    match Cli::parse().command {
         Commands::Android { android_command } => match android_command {
             FormatCommands::FromFluent { input, output, .. } => {
                 fluent_to_android(&input, &output)?;

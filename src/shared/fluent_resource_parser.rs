@@ -1,154 +1,65 @@
 use crate::shared::fluent_data::{FluentElement, FluentMessage, FluentPattern, FluentResource};
 use anyhow::Result;
-use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern, PatternElement};
-use fluent_syntax::parser::parse;
-use std::collections::HashMap;
+use fluent_syntax::ast::{Entry, InlineExpression};
 
 // Constants for better maintainability
-const UNSUPPORTED_PLACEHOLDER: &str = "{unsupported}";
+pub const UNSUPPORTED_PLACEHOLDER: &str = "{unsupported}";
 
 /// Internal parser state for processing Fluent AST entries
-pub struct FluentResourceParser {
-    messages: Vec<FluentMessage>,
-}
+pub struct FluentResourceParser;
 
 impl FluentResourceParser {
-    pub fn new() -> Self {
-        Self {
-            messages: Vec::new(),
-        }
-    }
-
-    pub fn parse_source(&mut self, source: &str) -> Result<FluentResource> {
-        let resource = parse_with_error_handling(source)?;
-        self.process_entries(resource.body)?;
+    pub fn parse_source(source: &str) -> Result<FluentResource> {
+        let resource = match fluent_syntax::parser::parse(source) {
+            Ok(resource) => Ok(resource),
+            Err((_resource, errors)) => Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors)),
+        }?;
 
         Ok(FluentResource {
-            messages: std::mem::take(&mut self.messages),
+            messages: Self::process_entries(resource.body),
         })
     }
 
-    fn process_entries(&mut self, entries: Vec<Entry<&str>>) -> Result<()> {
-        for entry in entries {
-            match entry {
-                Entry::Message(message) => self.process_message(message),
-                Entry::Comment(_) => {
-                    // Standalone comments are ignored - only use parser's built-in comment association
-                }
-                Entry::GroupComment(_) | Entry::ResourceComment(_) => {
-                    // Ignore group and resource comments for now
-                }
-                Entry::Term(_) => {
-                    // Handle terms if needed in the future
-                }
-                Entry::Junk { .. } => {
-                    // Ignore junk entries
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn process_message(&mut self, message: fluent_syntax::ast::Message<&str>) {
-        let message_id = message.id.name.to_string();
-
-        // Only use comments directly associated with the message by the fluent-syntax parser
-        let comment = message
-            .comment
-            .map(|msg_comment| msg_comment.content.join("\n"));
-
-        let fluent_message = FluentMessage {
-            id: message_id,
-            value: message.value.map(|pattern| convert_pattern(&pattern)),
-            attributes: self.convert_attributes(message.attributes),
-            comment,
-        };
-
-        self.messages.push(fluent_message);
-    }
-
-    fn convert_attributes(
-        &self,
-        attributes: Vec<fluent_syntax::ast::Attribute<&str>>,
-    ) -> HashMap<String, FluentPattern> {
-        attributes
+    fn process_entries(entries: Vec<Entry<&str>>) -> Vec<FluentMessage> {
+        entries
             .into_iter()
-            .map(|attr| (attr.id.name.to_string(), convert_pattern(&attr.value)))
+            .map(TryFrom::try_from)
+            .flat_map(Result::ok)
             .collect()
     }
-}
 
-fn parse_with_error_handling(source: &str) -> Result<fluent_syntax::ast::Resource<&str>> {
-    match parse(source) {
-        Ok(resource) => Ok(resource),
-        Err((resource, errors)) => {
-            if errors.is_empty() {
-                Ok(resource)
-            } else {
-                Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors))
+    pub fn convert_select_expression(
+        selector: &InlineExpression<&str>,
+        variants: &[fluent_syntax::ast::Variant<&str>],
+    ) -> FluentElement {
+        if let InlineExpression::VariableReference { id } = selector {
+            let selector_name = id.name.to_string();
+            let variant_map = variants
+                .iter()
+                .map(|variant| {
+                    let key = Self::variant_key_to_string(&variant.key);
+                    let pattern = FluentPattern::from(&variant.value);
+                    (key, pattern)
+                })
+                .collect();
+
+            FluentElement::Plural {
+                selector: selector_name,
+                variants: variant_map,
             }
+        } else {
+            FluentElement::Text(UNSUPPORTED_PLACEHOLDER.to_string())
         }
     }
-}
 
-fn convert_pattern(pattern: &Pattern<&str>) -> FluentPattern {
-    let elements = pattern
-        .elements
-        .iter()
-        .map(convert_pattern_element)
-        .collect();
-
-    FluentPattern { elements }
-}
-
-fn convert_pattern_element(element: &PatternElement<&str>) -> FluentElement {
-    match element {
-        PatternElement::TextElement { value } => FluentElement::Text(value.to_string()),
-        PatternElement::Placeable { expression } => convert_expression(expression),
-    }
-}
-
-fn convert_expression(expression: &Expression<&str>) -> FluentElement {
-    match expression {
-        Expression::Inline(InlineExpression::VariableReference { id }) => {
-            FluentElement::Variable(id.name.to_string())
-        }
-        Expression::Select { selector, variants } => convert_select_expression(selector, variants),
-        _ => FluentElement::Text(UNSUPPORTED_PLACEHOLDER.to_string()),
-    }
-}
-
-fn convert_select_expression(
-    selector: &InlineExpression<&str>,
-    variants: &[fluent_syntax::ast::Variant<&str>],
-) -> FluentElement {
-    if let InlineExpression::VariableReference { id } = selector {
-        let selector_name = id.name.to_string();
-        let variant_map = variants
-            .iter()
-            .map(|variant| {
-                let key = variant_key_to_string(&variant.key);
-                let pattern = convert_pattern(&variant.value);
-                (key, pattern)
-            })
-            .collect();
-
-        FluentElement::Plural {
-            selector: selector_name,
-            variants: variant_map,
-        }
-    } else {
-        FluentElement::Text(UNSUPPORTED_PLACEHOLDER.to_string())
-    }
-}
-
-fn variant_key_to_string(key: &fluent_syntax::ast::VariantKey<&str>) -> String {
-    match key {
-        fluent_syntax::ast::VariantKey::Identifier { name } => name.to_string(),
-        fluent_syntax::ast::VariantKey::NumberLiteral { value } => {
-            // Preserve the actual numeric value - don't convert to named forms
-            // This is important for round-trip conversion especially for PO format
-            value.to_string()
+    fn variant_key_to_string(key: &fluent_syntax::ast::VariantKey<&str>) -> String {
+        match key {
+            fluent_syntax::ast::VariantKey::Identifier { name } => name.to_string(),
+            fluent_syntax::ast::VariantKey::NumberLiteral { value } => {
+                // Preserve the actual numeric value - don't convert to named forms
+                // This is important for round-trip conversion especially for PO format
+                value.to_string()
+            }
         }
     }
 }
@@ -329,10 +240,16 @@ goodbye = Goodbye!"#;
     fn test_variant_key_conversion() {
         // Test that numeric values are preserved as-is for round-trip conversion
         let numeric_key = fluent_syntax::ast::VariantKey::NumberLiteral { value: "1" };
-        assert_eq!(variant_key_to_string(&numeric_key), "1");
+        assert_eq!(
+            FluentResourceParser::variant_key_to_string(&numeric_key),
+            "1"
+        );
 
         let identifier_key = fluent_syntax::ast::VariantKey::Identifier { name: "few" };
-        assert_eq!(variant_key_to_string(&identifier_key), "few");
+        assert_eq!(
+            FluentResourceParser::variant_key_to_string(&identifier_key),
+            "few"
+        );
     }
 
     #[test]
