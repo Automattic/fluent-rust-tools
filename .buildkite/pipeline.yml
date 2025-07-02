@@ -37,6 +37,9 @@ steps:
 
       echo "--- :rust: Ensuring Code Conforms to rustfmt"
       make fmt-check-rust
+    notify:
+      - github_commit_status:
+          context: "Rust Lint"
   - label: ":ruby: Rubocop + RSpec"
     # for now, running in the default queue to avoid the need of a Gemfile the root directory
     command: cd ruby && bundle install && bundle exec rubocop && bundle exec rspec
