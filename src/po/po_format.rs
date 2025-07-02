@@ -239,33 +239,33 @@ fn convert_fluent_message_to_po(
 ) -> Result<()> {
     // Convert main message value
     if let Some(pattern) = &message.value {
-        convert_main_message_value(catalog, message, pattern, source_message, locale)?;
+        let message = convert_main_message_value(message, pattern, source_message, locale)?;
+        catalog.append_or_update(message);
     }
 
     // Convert attributes
-    convert_message_attributes(catalog, message, source_message)?;
+    let messages = convert_message_attributes(message, source_message);
+    messages.into_iter().for_each(|m| {
+        catalog.append_or_update(m);
+    });
 
     Ok(())
 }
 
 fn convert_main_message_value(
-    catalog: &mut Catalog,
     message: &FluentMessage,
     pattern: &FluentPattern,
     source_message: Option<&FluentMessage>,
     locale: &str,
-) -> Result<()> {
+) -> Result<PoMessage> {
     let target_text = extract_pattern_text(pattern);
     let comments = message.comment.as_ref().cloned().unwrap_or_default();
 
-    let message = if let Some(plural_info) = extract_plural_info(pattern) {
-        convert_plural_message(message, &plural_info, source_message, &comments, locale)?
+    if let Some(plural_info) = extract_plural_info(pattern) {
+        convert_plural_message(message, &plural_info, source_message, &comments, locale)
     } else {
-        convert_singular_message(message, &target_text, source_message, &comments)?
-    };
-    catalog.append_or_update(message);
-
-    Ok(())
+        convert_singular_message(message, &target_text, source_message, &comments)
+    }
 }
 
 fn convert_plural_message(
@@ -334,30 +334,31 @@ fn convert_singular_message(
 }
 
 fn convert_message_attributes(
-    catalog: &mut Catalog,
     message: &FluentMessage,
     source_message: Option<&FluentMessage>,
-) -> Result<()> {
-    for (attr_name, attr_pattern) in &message.attributes {
-        let attr_msgctxt = format!("{}.{}", message.id, attr_name);
-        let target_attr_text = extract_pattern_text(attr_pattern);
+) -> Vec<PoMessage> {
+    message
+        .attributes
+        .iter()
+        .map(|(attr_name, attr_pattern)| {
+            let attr_msgctxt = format!("{}.{}", message.id, attr_name);
+            let target_attr_text = extract_pattern_text(attr_pattern);
 
-        let source_attr_text = source_message
-            .and_then(|sm| sm.attributes.get(attr_name))
-            .map(extract_pattern_text);
+            let source_attr_text = source_message
+                .and_then(|sm| sm.attributes.get(attr_name))
+                .map(extract_pattern_text);
 
-        let msgid = source_attr_text.unwrap_or_else(|| target_attr_text.clone());
+            let msgid = source_attr_text.unwrap_or_else(|| target_attr_text.clone());
 
-        let mut msg_builder = PoMessage::build_singular();
-        msg_builder
-            .with_msgctxt(attr_msgctxt)
-            .with_msgid(msgid)
-            .with_msgstr(target_attr_text);
+            let mut msg_builder = PoMessage::build_singular();
+            msg_builder
+                .with_msgctxt(attr_msgctxt)
+                .with_msgid(msgid)
+                .with_msgstr(target_attr_text);
 
-        catalog.append_or_update(msg_builder.done());
-    }
-
-    Ok(())
+            msg_builder.done()
+        })
+        .collect()
 }
 
 fn convert_singular_po_message_to_fluent_message(
