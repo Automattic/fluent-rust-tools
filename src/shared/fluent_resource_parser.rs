@@ -1,10 +1,10 @@
 use crate::shared::fluent_data::{FluentElement, FluentMessage, FluentPattern, FluentResource};
 use anyhow::Result;
-use fluent_syntax::ast::{Entry, Expression, InlineExpression, PatternElement};
+use fluent_syntax::ast::{Entry, InlineExpression, PatternElement};
 use std::collections::HashMap;
 
 // Constants for better maintainability
-const UNSUPPORTED_PLACEHOLDER: &str = "{unsupported}";
+pub const UNSUPPORTED_PLACEHOLDER: &str = "{unsupported}";
 
 /// Internal parser state for processing Fluent AST entries
 pub struct FluentResourceParser;
@@ -45,23 +45,11 @@ impl FluentResourceParser {
     pub fn convert_pattern_element(element: &PatternElement<&str>) -> FluentElement {
         match element {
             PatternElement::TextElement { value } => FluentElement::Text(value.to_string()),
-            PatternElement::Placeable { expression } => Self::convert_expression(expression),
+            PatternElement::Placeable { expression } => expression.into(),
         }
     }
 
-    fn convert_expression(expression: &Expression<&str>) -> FluentElement {
-        match expression {
-            Expression::Inline(InlineExpression::VariableReference { id }) => {
-                FluentElement::Variable(id.name.to_string())
-            }
-            Expression::Select { selector, variants } => {
-                Self::convert_select_expression(selector, variants)
-            }
-            _ => FluentElement::Text(UNSUPPORTED_PLACEHOLDER.to_string()),
-        }
-    }
-
-    fn convert_select_expression(
+    pub fn convert_select_expression(
         selector: &InlineExpression<&str>,
         variants: &[fluent_syntax::ast::Variant<&str>],
     ) -> FluentElement {

@@ -2,8 +2,10 @@ use crate::shared::{
     fluent_resource_parser::FluentResourceParser, fluent_resource_writer::FluentResourceWriter,
 };
 use anyhow::{anyhow, Result};
-use fluent_syntax::ast::{Entry, Pattern};
+use fluent_syntax::ast::{Entry, Expression, InlineExpression, Pattern};
 use std::collections::HashMap;
+
+use super::fluent_resource_parser::UNSUPPORTED_PLACEHOLDER;
 
 #[derive(Debug, Clone)]
 pub struct FluentMessage {
@@ -74,6 +76,20 @@ pub enum FluentElement {
         selector: String,
         variants: HashMap<String, FluentPattern>,
     },
+}
+
+impl From<&Expression<&str>> for FluentElement {
+    fn from(expression: &Expression<&str>) -> Self {
+        match expression {
+            Expression::Inline(InlineExpression::VariableReference { id }) => {
+                FluentElement::Variable(id.name.to_string())
+            }
+            Expression::Select { selector, variants } => {
+                FluentResourceParser::convert_select_expression(selector, variants)
+            }
+            _ => FluentElement::Text(UNSUPPORTED_PLACEHOLDER.to_string()),
+        }
+    }
 }
 
 #[derive(Debug)]
