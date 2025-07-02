@@ -58,6 +58,8 @@ steps:
           .buildkite/release-binary.sh x86_64-linux
           .buildkite/release-binary.sh arm64-linux
         plugins: [$CI_TOOLKIT]
+        agents:
+          queue: android
 
       - label: ":mac: macOS Binaries (x86_64 + ARM64)"
         command: |
