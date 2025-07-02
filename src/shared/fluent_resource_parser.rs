@@ -11,7 +11,10 @@ pub struct FluentResourceParser;
 
 impl FluentResourceParser {
     pub fn parse_source(source: &str) -> Result<FluentResource> {
-        let resource = Self::parse_with_error_handling(source)?;
+        let resource = match fluent_syntax::parser::parse(source) {
+            Ok(resource) => Ok(resource),
+            Err((_resource, errors)) => Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors)),
+        }?;
 
         Ok(FluentResource {
             messages: Self::process_entries(resource.body),
@@ -33,13 +36,6 @@ impl FluentResourceParser {
             .iter()
             .map(|attr| (attr.id.name.to_string(), (&attr.value).into()))
             .collect()
-    }
-
-    fn parse_with_error_handling(source: &str) -> Result<fluent_syntax::ast::Resource<&str>> {
-        match fluent_syntax::parser::parse(source) {
-            Ok(resource) => Ok(resource),
-            Err((_resource, errors)) => Err(anyhow::anyhow!("Fluent parse errors: {:#?}", errors)),
-        }
     }
 
     pub fn convert_select_expression(
