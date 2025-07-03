@@ -27,7 +27,7 @@ pub fn fluent_to_po(
     };
 
     // Convert to PO
-    let po_catalog = fluent_to_po_catalog(fluent_resource, locale, source_resource)?;
+    let po_catalog = fluent_to_po_catalog(fluent_resource, locale, source_resource);
 
     // Write PO file with proper CLDR plural forms
     po_file::write(&po_catalog, output_path)
