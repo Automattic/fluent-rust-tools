@@ -45,6 +45,12 @@ const DEFAULT_LANGUAGE: &str = "en";
 const FLUENT_SELECTOR_PREFIX: &str = "FLUENT_SELECTOR:";
 
 // =============================================================================
+// Helper Types
+// =============================================================================
+
+type FluentMessageToPoResult = (Option<PoMessage>, Vec<PoMessage>);
+
+// =============================================================================
 // Public API Functions
 // =============================================================================
 
@@ -82,18 +88,26 @@ pub fn fluent_to_po_catalog(
     target_resource: FluentResource,
     locale: &str,
     source_resource: Option<FluentResource>,
-) -> Result<Catalog> {
+) -> Catalog {
     let metadata = create_po_metadata(locale);
+    let source_lookup = create_source_message_lookup(source_resource.as_ref());
     let mut catalog = Catalog::new(metadata);
 
-    let source_lookup = create_source_message_lookup(source_resource.as_ref());
+    target_resource.messages.iter().for_each(|fluent_message| {
+        let source_message = source_lookup.get(&fluent_message.id).copied();
 
-    for message in target_resource.messages {
-        let source_message = source_lookup.get(&message.id).copied();
-        convert_fluent_message_to_po(&mut catalog, &message, source_message, locale)?;
-    }
+        let (main_message, message_attributes) =
+            convert_fluent_message_to_po(fluent_message, source_message, locale);
 
-    Ok(catalog)
+        if let Some(m) = main_message {
+            catalog.append_or_update(m);
+        };
+        message_attributes.into_iter().for_each(|m| {
+            catalog.append_or_update(m);
+        });
+    });
+
+    catalog
 }
 
 /// Convert a PO catalog to FluentResource
@@ -232,24 +246,16 @@ struct PluralInfo {
 // =============================================================================
 
 fn convert_fluent_message_to_po(
-    catalog: &mut Catalog,
     message: &FluentMessage,
     source_message: Option<&FluentMessage>,
     locale: &str,
-) -> Result<()> {
-    // Convert main message value
-    if let Some(pattern) = &message.value {
-        let message = convert_main_message_value(message, pattern, source_message, locale)?;
-        catalog.append_or_update(message);
-    }
-
-    // Convert attributes
-    let messages = convert_message_attributes(message, source_message);
-    messages.into_iter().for_each(|m| {
-        catalog.append_or_update(m);
-    });
-
-    Ok(())
+) -> FluentMessageToPoResult {
+    let main_message = message
+        .value
+        .as_ref()
+        .map(|pattern| convert_main_message_value(message, pattern, source_message, locale));
+    let message_attributes = convert_message_attributes(message, source_message);
+    (main_message, message_attributes)
 }
 
 fn convert_main_message_value(
@@ -257,7 +263,7 @@ fn convert_main_message_value(
     pattern: &FluentPattern,
     source_message: Option<&FluentMessage>,
     locale: &str,
-) -> Result<PoMessage> {
+) -> PoMessage {
     let target_text = extract_pattern_text(pattern);
     let comments = message.comment.as_ref().cloned().unwrap_or_default();
 
@@ -274,7 +280,7 @@ fn convert_plural_message(
     source_message: Option<&FluentMessage>,
     comments: &str,
     locale: &str,
-) -> Result<PoMessage> {
+) -> PoMessage {
     // Simplified logic: directly get plural forms without multiple wrapper functions
     let (msgid, msgid_plural, msgstr_forms) = if let Some(source_msg) = source_message {
         // Check if source has plural info
@@ -309,7 +315,7 @@ fn convert_plural_message(
     if !combined_comments.is_empty() {
         msg_builder.with_comments(combined_comments);
     }
-    Ok(msg_builder.done())
+    msg_builder.done()
 }
 
 fn convert_singular_message(
@@ -317,7 +323,7 @@ fn convert_singular_message(
     target_text: &str,
     source_message: Option<&FluentMessage>,
     comments: &str,
-) -> Result<PoMessage> {
+) -> PoMessage {
     let msgid = get_source_text_or_target(source_message, target_text);
 
     let mut msg_builder = PoMessage::build_singular();
@@ -330,7 +336,7 @@ fn convert_singular_message(
         msg_builder.with_comments(comments.to_string());
     }
 
-    Ok(msg_builder.done())
+    msg_builder.done()
 }
 
 fn convert_message_attributes(
@@ -725,10 +731,7 @@ mod tests {
             messages: fluent_messages,
         };
 
-        let result = fluent_to_po_catalog(fluent_resource, "en", None);
-        assert!(result.is_ok());
-
-        let catalog = result.unwrap();
+        let catalog = fluent_to_po_catalog(fluent_resource, "en", None);
         assert_eq!(catalog.messages().count(), 3);
 
         // Check metadata
