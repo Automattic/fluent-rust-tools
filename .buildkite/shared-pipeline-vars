@@ -3,7 +3,7 @@
 # This file is `source`'d before calling `buildkite-agent pipeline upload`, and can be used
 # to set up some variables that will be interpolated in the `.yml` pipeline before uploading it.
 
-XCODE_VERSION="16.4"
+XCODE_VERSION="26.6"
 CI_TOOLKIT_PLUGIN_VERSION="5.3.1"
 
 export IMAGE_ID="xcode-$XCODE_VERSION"

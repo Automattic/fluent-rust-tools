@@ -8,7 +8,7 @@ common_params:
   plugins:
     - &docker_plugin
       docker#v5.8.0:
-        image: public.ecr.aws/docker/library/ruby:3.2.2
+        image: public.ecr.aws/docker/library/ruby:3.4.9
         propagate-environment: true
         environment:
           - RUBYGEMS_API_KEY
