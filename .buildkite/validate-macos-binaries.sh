@@ -4,9 +4,10 @@ set -euo pipefail
 
 echo "--- :xcode: Image toolchain"
 xcodebuild -version
-expected_xcode="${IMAGE_ID#xcode-}"
-xcodebuild -version | grep -q "^Xcode ${expected_xcode%%-*}" \
-  || { echo "ASSERTION FAILED: expected Xcode ${expected_xcode%%-*} on ${IMAGE_ID}"; exit 1; }
+image_id="$1"
+expected_xcode="${image_id#xcode-}"
+xcodebuild -version | grep -q "^Xcode ${expected_xcode%%-*}$" \
+  || { echo "ASSERTION FAILED: expected Xcode ${expected_xcode%%-*} on ${image_id}"; exit 1; }
 
 echo "--- :rust: Installing Rust"
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -v -y

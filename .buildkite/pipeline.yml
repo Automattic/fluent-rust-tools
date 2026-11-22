@@ -15,10 +15,13 @@ common_params:
 
 steps:
   - label: ":mac: [DO NOT MERGE] Validate macOS binaries on $IMAGE_ID"
-    command: .buildkite/validate-macos-binaries.sh
+    command: .buildkite/validate-macos-binaries.sh "$IMAGE_ID"
     plugins: [$CI_TOOLKIT]
     agents:
       queue: mac
+    notify:
+      - github_commit_status:
+          context: "Validate macOS binaries"
 
   #################
   # Build and Test
