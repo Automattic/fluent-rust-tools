@@ -14,6 +14,12 @@ common_params:
           - RUBYGEMS_API_KEY
 
 steps:
+  - label: ":mac: [DO NOT MERGE] Validate macOS binaries on $IMAGE_ID"
+    command: .buildkite/validate-macos-binaries.sh
+    plugins: [$CI_TOOLKIT]
+    agents:
+      queue: mac
+
   #################
   # Build and Test
   #################
