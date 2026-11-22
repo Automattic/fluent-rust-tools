@@ -6,7 +6,8 @@ echo "--- :xcode: Image toolchain"
 xcodebuild -version
 image_id="$1"
 expected_xcode="${image_id#xcode-}"
-xcodebuild -version | grep -q "^Xcode ${expected_xcode%%-*}$" \
+xcode_version=$(xcodebuild -version)
+grep -qx "Xcode ${expected_xcode%%-*}" <<< "$xcode_version" \
   || { echo "ASSERTION FAILED: expected Xcode ${expected_xcode%%-*} on ${image_id}"; exit 1; }
 
 echo "--- :rust: Installing Rust"
