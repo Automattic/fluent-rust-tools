@@ -53,6 +53,42 @@ steps:
           context: "Ruby Lint and Tests"
 
   #################
+  # [DO NOT MERGE] Validate the macOS release build on xcode-27.2-v4
+  #################
+  - group: "[DO NOT MERGE] xcode-27.2-v4 validation"
+    steps:
+      - label: "[DO NOT MERGE] Assert the VM is xcode-27.2-v4"
+        command: .buildkite/commands/assert-image.sh v4
+        agents:
+          queue: mac
+
+      - label: "[DO NOT MERGE] Control: assert the check rejects xcode-27.2-v3"
+        command: .buildkite/commands/assert-image.sh v3
+        env:
+          IMAGE_ID: xcode-27.2-v3
+        agents:
+          queue: mac
+
+      # Same as ":mac: macOS Binaries", minus the GitHub release upload: `build_rust` instead of `build_and_create_github_release`.
+      - label: "[DO NOT MERGE] :mac: macOS Binaries (x86_64 + ARM64), no upload"
+        command: |
+          .buildkite/commands/assert-image.sh v4
+          echo "--- :rust: Installing Rust"
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -v -y
+          source "$$HOME/.cargo/env"
+          cd ruby
+          install_gems
+          for platform in x86_64-darwin arm64-darwin; do
+            echo "--- :hammer: Building $$platform"
+            bundle exec rake "build_rust[$$platform]"
+          done
+          echo "--- :mag: Built binaries"
+          find ../target -path '*/release/*' -maxdepth 3 -type f -perm -u+x -exec file {} \;
+        plugins: [$CI_TOOLKIT]
+        agents:
+          queue: mac
+
+  #################
   # Release Binaries
   #################
   - group: "📦 Release Binaries"
